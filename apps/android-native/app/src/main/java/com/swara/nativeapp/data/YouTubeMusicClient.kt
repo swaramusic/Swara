@@ -165,11 +165,10 @@ class YouTubeMusicClient {
 
             val playlistShelf = findPlaylistShelf(root)
             if (playlistShelf != null) {
-                collectTracksRecursive(playlistShelf.optJSONArray("contents"), found, limit = 500)
+                collectTracksRecursive(playlistShelf.optJSONArray("contents"), found, limit = Int.MAX_VALUE)
+                val seenTokens = mutableSetOf<String>()
                 var token = extractContinuationToken(playlistShelf)
-                var page = 0
-                while (!token.isNullOrBlank() && found.size < 500 && page < 15) {
-                    page++
+                while (!token.isNullOrBlank() && seenTokens.add(token)) {
                     val contPayload = JSONObject().apply {
                         put("continuation", token)
                         put("context", webRemixContext(hl, gl))
@@ -177,12 +176,12 @@ class YouTubeMusicClient {
                     val contRoot = runCatching { postJson("$API/browse?prettyPrint=false", contPayload) }.getOrNull() ?: break
                     val contItems = findContinuationItems(contRoot) ?: break
                     val before = found.size
-                    collectTracksRecursive(contItems, found, limit = 500)
+                    collectTracksRecursive(contItems, found, limit = Int.MAX_VALUE)
                     if (found.size == before) break
                     token = extractContinuationToken(contItems) ?: extractContinuationToken(contRoot)
                 }
             } else {
-                collectTracksRecursive(root, found, limit = 500)
+                collectTracksRecursive(root, found, limit = Int.MAX_VALUE)
             }
 
             title to found.filter { it.browseId.isBlank() }.distinctBy { it.id }
@@ -294,7 +293,7 @@ class YouTubeMusicClient {
                     val plTitle = entity.optString("name").ifBlank { entity.optString("title") }.ifBlank { "Playlist Spotify" }
                     val trackList = entity.optJSONArray("trackList") ?: JSONArray()
                     val resolved = mutableListOf<Track>()
-                    for (i in 0 until minOf(trackList.length(), 100)) {
+                    for (i in 0 until trackList.length()) {
                         val item = trackList.optJSONObject(i) ?: continue
                         val tTitle = item.optString("title").trim()
                         val tArtist = item.optString("subtitle").replace('\u00A0', ' ').trim()
