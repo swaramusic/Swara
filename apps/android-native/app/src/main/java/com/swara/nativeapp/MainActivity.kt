@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import kotlinx.coroutines.launch
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
@@ -484,6 +485,7 @@ fun SwaraNativeApp(
     var showHistorySheet by remember { mutableStateOf(false) }
     var showFriendsStats by remember { mutableStateOf(false) }
     var showDiscordSheet by remember { mutableStateOf(false) }
+    var showAboutSheet by remember { mutableStateOf(false) }
     var ambientMode by remember { mutableStateOf(false) }
     var openedUserPlaylist by remember { mutableStateOf<UserPlaylist?>(null) }
     val deviceAudioLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -493,7 +495,7 @@ fun SwaraNativeApp(
     // Intercept system Back button so it closes overlays/tabs instead of exiting the app
     val hasOpenOverlay = showSongMenuSheet || showEqSheet || showSoundStyleSheet ||
         showIdentifySheet || showListenSheet || showHistorySheet || showFriendsStats ||
-        showDiscordSheet || showRecapSheet || showFullscreen || openedUserPlaylist != null ||
+        showDiscordSheet || showAboutSheet || showRecapSheet || showFullscreen || openedUserPlaylist != null ||
         playlistPickerTrack != null || showCreatePlaylistDialog || showImportPlaylistDialog ||
         state.openedArtistName != null || state.openedPlaylistTitle != null || state.openedAlbumTitle != null
 
@@ -505,6 +507,7 @@ fun SwaraNativeApp(
             showIdentifySheet -> showIdentifySheet = false
             showListenSheet -> showListenSheet = false
             showDiscordSheet -> showDiscordSheet = false
+            showAboutSheet -> showAboutSheet = false
             playlistPickerTrack != null -> playlistPickerTrack = null
             showCreatePlaylistDialog -> showCreatePlaylistDialog = false
             showImportPlaylistDialog -> showImportPlaylistDialog = false
@@ -717,6 +720,7 @@ fun SwaraNativeApp(
                             onCycleSleepTimer = { vm.cycleSleepTimer() },
                             onOpenEq = { showEqSheet = true },
                             onOpenSoundStyle = { showSoundStyleSheet = true },
+                            onOpenAbout = { showAboutSheet = true },
                         )
                     }
                 }
@@ -1101,6 +1105,18 @@ fun SwaraNativeApp(
                     onToggleShowButtons = { vm.setDiscordShowButtons(it) },
                     onSelectTemplate = { vm.setDiscordTemplate(it) },
                     onClose = { showDiscordSheet = false },
+                )
+            }
+
+            AnimatedVisibility(
+                visible = showAboutSheet,
+                enter = slideInVertically(tween(240)) { it / 4 } + fadeIn(tween(200)),
+                exit = slideOutVertically(tween(200)) { it / 4 } + fadeOut(tween(180))
+            ) {
+                AboutOverlay(
+                    primaryColor = primaryColor,
+                    glowColor = glowColor,
+                    onClose = { showAboutSheet = false },
                 )
             }
 
@@ -3241,6 +3257,7 @@ private fun SettingsScreen(
     onCycleSleepTimer: () -> Unit,
     onOpenEq: () -> Unit,
     onOpenSoundStyle: () -> Unit,
+    onOpenAbout: () -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -3480,6 +3497,16 @@ private fun SettingsScreen(
                 }
             }
         }
+        HorizontalDivider(color = TextInk.copy(alpha = 0.08f))
+        SettingsGroupHeader(
+            icon = Icons.Default.Info,
+            title = "About Swara",
+            subtitle = "Version 1.0.0 \u2022 Updates \u2022 Developer",
+            expanded = false,
+            primaryColor = primaryColor,
+            onClick = onOpenAbout
+        )
+        Spacer(Modifier.height(140.dp))
     }
 
     if (showColorPicker) {
@@ -3662,6 +3689,253 @@ private fun PlaylistSheetContent(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AboutOverlay(
+    primaryColor: Color,
+    glowColor: Color,
+    onClose: () -> Unit,
+) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val pkgInfo = remember(ctx) {
+        runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0) }.getOrNull()
+    }
+    val appVersion = pkgInfo?.versionName ?: "1.0.0"
+    val abiLabel = remember { android.os.Build.SUPPORTED_ABIS.firstOrNull()?.uppercase() ?: "UNIVERSAL" }
+
+    var isCheckingUpdate by remember { mutableStateOf(false) }
+    var updateStatus by remember { mutableStateOf("Tap to check latest GitHub release") }
+    var updateUrl by remember { mutableStateOf<String?>(null) }
+    var showDevSheet by remember { mutableStateOf(false) }
+
+    val openUrl: (String) -> Unit = { url ->
+        runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+    }
+
+    val checkUpdates: () -> Unit = {
+        if (!isCheckingUpdate) {
+            isCheckingUpdate = true
+            updateStatus = "Checking GitHub Releases..."
+            updateUrl = null
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val res = runCatching {
+                    val client = okhttp3.OkHttpClient()
+                    val req = okhttp3.Request.Builder()
+                        .url("https://api.github.com/repos/swaramusic/Swara/releases/latest")
+                        .header("Accept", "application/vnd.github+json")
+                        .build()
+                    client.newCall(req).execute().use { r ->
+                        if (r.code == 404) {
+                            "latest" to null
+                        } else if (!r.isSuccessful) {
+                            "err" to null
+                        } else {
+                            val json = org.json.JSONObject(r.body?.string().orEmpty())
+                            val tag = json.optString("tag_name").removePrefix("v").trim()
+                            val html = json.optString("html_url").ifBlank { "https://github.com/swaramusic/Swara/releases" }
+                            if (tag.isNotBlank() && tag != appVersion) "new:$tag" to html
+                            else "latest" to null
+                        }
+                    }
+                }.getOrDefault("err" to null)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    isCheckingUpdate = false
+                    when {
+                        res.first.startsWith("new:") -> {
+                            val v = res.first.removePrefix("new:")
+                            updateStatus = "Update available: v$v"
+                            updateUrl = res.second
+                        }
+                        res.first == "latest" -> updateStatus = "You're on the latest version (v$appVersion)"
+                        else -> updateStatus = "Could not check updates. Try again later."
+                    }
+                }
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BgDark)
+            .background(Brush.verticalGradient(listOf(primaryColor.copy(alpha = 0.22f), glowColor.copy(alpha = 0.1f), BgDark)))
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            IconButton(onClick = onClose, modifier = Modifier.size(38.dp)) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextInk)
+            }
+            Text("About Swara", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = TextInk)
+        }
+
+        // Hero Header
+        Surface(
+            color = CardDark.copy(alpha = 0.8f),
+            shape = RoundedCornerShape(26.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                SwaraAnimatedVectorLogo(modifier = Modifier.size(84.dp))
+                Text("Swara", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = TextInk)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("v$appVersion", abiLabel, "GPL-3.0").forEach { badge ->
+                        Surface(color = primaryColor.copy(alpha = 0.16f), shape = RoundedCornerShape(50)) {
+                            Text(badge, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TextInk, modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp))
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check for updates (Auralys-inspired clean pill row)
+        Surface(
+            color = CardDark,
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable(onClick = checkUpdates)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (isCheckingUpdate) {
+                    CircularProgressIndicator(color = primaryColor, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
+                } else {
+                    Icon(Icons.Default.Update, contentDescription = null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Check for updates", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextInk)
+                    Text(updateStatus, fontSize = 12.sp, color = TextInk.copy(alpha = 0.65f))
+                }
+                val dlUrl = updateUrl
+                if (dlUrl != null) {
+                    Surface(
+                        color = primaryColor,
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier.clip(RoundedCornerShape(50)).clickable { openUrl(dlUrl) }
+                    ) {
+                        Text("Download", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                    }
+                } else {
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextInk.copy(alpha = 0.55f))
+                }
+            }
+        }
+
+        // Community & Social links
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            listOf(
+                Triple("GitHub", Icons.Default.Code, "https://github.com/swaramusic/Swara"),
+                Triple("Releases", Icons.Default.NewReleases, "https://github.com/swaramusic/Swara/releases"),
+                Triple("Issues", Icons.Default.BugReport, "https://github.com/swaramusic/Swara/issues"),
+            ).forEach { (label, ic, url) ->
+                Surface(
+                    color = CardDark,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).clickable { openUrl(url) }
+                ) {
+                    Column(
+                        modifier = Modifier.padding(vertical = 14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(ic, contentDescription = label, tint = primaryColor, modifier = Modifier.size(22.dp))
+                        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextInk)
+                    }
+                }
+            }
+        }
+
+        // Creator / Developer (Metrolist-inspired profile + interactive bottom sheet)
+        Text("Developer", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextInk.copy(alpha = 0.72f), modifier = Modifier.padding(top = 4.dp))
+        Surface(
+            color = CardDark,
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable { showDevSheet = true }
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                AsyncImage(
+                    model = "https://github.com/tirtadhi.png",
+                    contentDescription = "tirtadhi",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(50.dp).clip(CircleShape).background(primaryColor.copy(alpha = 0.2f))
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("tirtadhi", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextInk)
+                    Text("Creator & Lead Developer", fontSize = 12.sp, color = TextInk.copy(alpha = 0.65f))
+                }
+                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextInk.copy(alpha = 0.55f))
+            }
+        }
+
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Swara is licensed under GNU GPL-3.0",
+            fontSize = 12.sp,
+            color = TextInk.copy(alpha = 0.55f),
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(24.dp))
+    }
+
+    if (showDevSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showDevSheet = false },
+            containerColor = CardDark,
+            contentColor = TextInk,
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    AsyncImage(
+                        model = "https://github.com/tirtadhi.png",
+                        contentDescription = "tirtadhi",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(60.dp).clip(CircleShape).background(primaryColor.copy(alpha = 0.2f))
+                    )
+                    Column {
+                        Text("tirtadhi", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextInk)
+                        Text("Creator & Lead Developer", fontSize = 13.sp, color = TextInk.copy(alpha = 0.68f))
+                    }
+                }
+                FilledTonalButton(
+                    onClick = { showDevSheet = false; openUrl("https://github.com/tirtadhi") },
+                    shape = RoundedCornerShape(50),
+                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = primaryColor, contentColor = Color.White),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Open GitHub Profile", fontWeight = FontWeight.Bold)
+                }
+                OutlinedButton(
+                    onClick = { showDevSheet = false; openUrl("https://github.com/swaramusic/Swara") },
+                    shape = RoundedCornerShape(50),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, TextInk.copy(alpha = 0.22f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextInk),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Open Swara Organization", fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.height(12.dp))
             }
         }
     }
