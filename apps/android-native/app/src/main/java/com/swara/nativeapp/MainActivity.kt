@@ -527,6 +527,7 @@ fun SwaraNativeApp(
     var showStorageSheet by remember { mutableStateOf(false) }
     var ambientMode by remember { mutableStateOf(false) }
     var openedUserPlaylist by remember { mutableStateOf<UserPlaylist?>(null) }
+    var confirmDelete by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
     var pendingDownloadTracks by remember { mutableStateOf<List<Track>?>(null) }
     val appCtxForTree = androidx.compose.ui.platform.LocalContext.current
     val downloadFolderLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -804,13 +805,13 @@ fun SwaraNativeApp(
                             onToggleLike = onToggleLikeCb,
                             onAddToQueue = onAddToQueueCb,
                             onDownload = onDownloadCb,
-                            onDeleteDownload = { vm.deleteDownload(it.id) },
+                            onDeleteDownload = { t -> confirmDelete = "Hapus unduhan \"${t.title}\"?" to { vm.deleteDownload(t.id) } },
                             onSaveToPlaylist = onSaveToPlaylistCb,
                             onCreatePlaylist = { showCreatePlaylistDialog = true },
                             onImportPlaylist = { showImportPlaylistDialog = true },
                             onImportDevice = { deviceAudioLauncher.launch(arrayOf("audio/*")) },
                             onOpenPlaylist = { openedUserPlaylist = it },
-                            onDeletePlaylist = { vm.deletePlaylist(it.id) },
+                            onDeletePlaylist = { pl -> confirmDelete = "Hapus playlist \"${pl.name}\"?" to { vm.deletePlaylist(pl.id) } },
                             onOpenArtist = onOpenArtistCb,
                             onUnfollowArtist = { vm.toggleFollowArtist(it) },
                             onOpenExplore = { activeTab = NavTab.EXPLORE },
@@ -1418,6 +1419,28 @@ fun SwaraNativeApp(
                     },
                     confirmButton = {
                         TextButton(onClick = { pendingDownloadTracks = null }) {
+                            Text("Batal", color = TextInk)
+                        }
+                    }
+                )
+            }
+
+            confirmDelete?.let { (msg, onConfirm) ->
+                AlertDialog(
+                    onDismissRequest = { confirmDelete = null },
+                    containerColor = CardDark,
+                    titleContentColor = TextInk,
+                    textContentColor = TextInk,
+                    title = { Text("Konfirmasi Hapus", fontWeight = FontWeight.Bold) },
+                    text = { Text(msg, fontSize = 14.sp, color = TextInk.copy(alpha = 0.82f)) },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            confirmDelete = null
+                            onConfirm()
+                        }) { Text("Hapus", color = Color(0xFFFF5A5F), fontWeight = FontWeight.Bold) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { confirmDelete = null }) {
                             Text("Batal", color = TextInk)
                         }
                     }
@@ -5000,10 +5023,30 @@ private fun StorageOverlay(
                     Text(fmtBytes(downloadBytes), fontSize = 13.sp, color = TextInk.copy(alpha = 0.65f))
                 }
                 HorizontalDivider(color = TextInk.copy(alpha = 0.06f))
+                var confirmStorageAction by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
+                confirmStorageAction?.let { (msg, action) ->
+                    AlertDialog(
+                        onDismissRequest = { confirmStorageAction = null },
+                        containerColor = CardDark,
+                        titleContentColor = TextInk,
+                        textContentColor = TextInk,
+                        title = { Text("Konfirmasi Hapus", fontWeight = FontWeight.Bold) },
+                        text = { Text(msg, fontSize = 14.sp, color = TextInk.copy(alpha = 0.82f)) },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                confirmStorageAction = null
+                                action()
+                                refreshTick++
+                            }) { Text("Hapus", color = Color(0xFFFF5A5F), fontWeight = FontWeight.Bold) }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { confirmStorageAction = null }) { Text("Batal", color = TextInk) }
+                        }
+                    )
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth().clickable {
-                        onClearDownloads()
-                        refreshTick++
+                        confirmStorageAction = "Hapus semua lagu yang sudah diunduh?" to onClearDownloads
                     }.padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -5015,7 +5058,7 @@ private fun StorageOverlay(
                 HorizontalDivider(color = TextInk.copy(alpha = 0.06f))
                 Row(
                     modifier = Modifier.fillMaxWidth().clickable {
-                        onClearHistory()
+                        confirmStorageAction = "Hapus semua riwayat pemutaran?" to onClearHistory
                     }.padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -5494,7 +5537,7 @@ private fun TrackRow(
                 )
                 DropdownMenuItem(
                     text = { Text(if (isDownloading) "Mengunduh..." else if (isDownloaded) "Tersimpan Offline" else "Unduh Offline", color = TextInk) },
-                    leadingIcon = { Icon(Icons.Default.Download, contentDescription = null, tint = if (isDownloaded) primaryColor else TextInk) },
+                    leadingIcon = { Icon(Icons.Default.Download, contentDescription = null, tint = TextInk) },
                     onClick = { menuOpen = false; onDownload() }
                 )
                 if (onRemoveFromPlaylist != null) {

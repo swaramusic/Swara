@@ -120,9 +120,10 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
         if (it.contains("discord_token")) it.edit().remove("discord_token").apply()
     }
     private val dlClient = okhttp3.OkHttpClient.Builder()
-        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-        .callTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .callTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .build()
     private val sseClient = okhttp3.OkHttpClient.Builder()
         .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
@@ -192,7 +193,7 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
         SwaraPlaybackService.dynamicIslandEnabled = _ui.value.dynamicIslandEnabled
         connectMediaController()
         loadHome()
-        resolveMissingArtistImages(_ui.value.followedArtists)
+        resolveMissingArtistImages((_ui.value.followedArtists + _ui.value.topArtists.map { it.first }).distinct())
         startProgressLoop()
     }
 
@@ -1306,8 +1307,14 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     notifyDownloadProgress(doneCount, totalCount, track.title, finished = false)
                     try {
-                        val url = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality).getOrThrow()
-                        fetchAudioToFile(url, dest)
+                        try {
+                            val url = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality).getOrThrow()
+                            fetchAudioToFile(url, dest)
+                        } catch (_: Exception) {
+                            runCatching { dest.delete() }
+                            val retryUrl = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality).getOrThrow()
+                            fetchAudioToFile(retryUrl, dest)
+                        }
                         copyToUserFolder(track, dest, folderUri)
                         succeededCount++
                         doneCount++
@@ -1373,8 +1380,14 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
             }
             notifyDownloadProgress(0, 1, track.title, finished = false)
             try {
-                val url = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality).getOrThrow()
-                fetchAudioToFile(url, dest)
+                try {
+                    val url = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality).getOrThrow()
+                    fetchAudioToFile(url, dest)
+                } catch (_: Exception) {
+                    runCatching { dest.delete() }
+                    val retryUrl = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality).getOrThrow()
+                    fetchAudioToFile(retryUrl, dest)
+                }
                 copyToUserFolder(track, dest, folderUri)
                 val updated = listOf(track) + _ui.value.downloadedTracks.filterNot { it.id == track.id }
                 _ui.update {
