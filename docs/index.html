@@ -199,9 +199,21 @@
       });
     }
 
+    const CONTRIBUTORS = [
+      {
+        id: 'tirtadhi',
+        name: 'tirtadhi',
+        role: 'Creator & Lead Developer',
+        avatar: 'https://github.com/tirtadhi.png',
+        github: 'https://github.com/tirtadhi',
+        qr: './qris-qr.png',
+      },
+    ];
+
     function App() {
       const [release, setRelease] = useState({ tag: 'v1.0.0', url: RELEASES_URL, label: 'Download APK', hasDirectApk: false });
       const [showSupport, setShowSupport] = useState(false);
+      const [selectedSupporter, setSelectedSupporter] = useState(null);
       const [showSuggestions, setShowSuggestions] = useState(false);
       const [openFaq, setOpenFaq] = useState(0);
       const [fbContact, setFbContact] = useState('');
@@ -343,18 +355,46 @@
           showSupport &&
             h(
               'div',
-              { key: 'supportModal', onClick: () => setShowSupport(false), className: 'fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4' },
+              { key: 'supportModal', onClick: () => { setShowSupport(false); setSelectedSupporter(null); }, className: 'fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4' },
               h(
                 'div',
-                { onClick: (e) => e.stopPropagation(), className: 'bg-[#121826] border border-white/15 rounded-3xl p-6 max-w-xs w-full text-center space-y-4 shadow-2xl' },
-                [
-                  h('h2', { className: 'font-bold text-lg' }, 'Support Swara'),
-                  h('div', { className: 'bg-white rounded-2xl p-3 mx-auto w-52 h-52 sm:w-56 sm:h-56 flex items-center justify-center' }, [
-                    h('img', { src: './qris-qr.png', alt: 'Support Code', className: 'w-full h-full object-contain' }),
-                  ]),
-                  h('p', { className: 'text-xs text-white/60' }, 'Scan with GoPay, OVO, DANA, ShopeePay, or Mobile Banking'),
-                  h('button', { onClick: () => setShowSupport(false), className: 'w-full py-2.5 rounded-full bg-white/10 hover:bg-white/15 text-xs font-semibold text-white/80 cursor-pointer transition' }, 'Close'),
-                ]
+                { onClick: (e) => e.stopPropagation(), className: 'bg-[#121826] border border-white/15 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl' },
+                selectedSupporter
+                  ? [
+                      h('div', { key: 'hdr', className: 'flex items-center justify-between gap-2' }, [
+                        h('button', { type: 'button', onClick: () => setSelectedSupporter(null), className: 'text-xs text-[#93C5FD] hover:text-white cursor-pointer' }, '← Back'),
+                        h('h2', { className: 'font-bold text-base text-white truncate' }, `Support ${selectedSupporter.name}`),
+                        h('span', { className: 'w-10' }),
+                      ]),
+                      h('div', { key: 'qr', className: 'bg-white rounded-2xl p-3 mx-auto w-52 h-52 sm:w-56 sm:h-56 flex items-center justify-center' }, [
+                        h('img', { src: selectedSupporter.qr, alt: `Support ${selectedSupporter.name}`, className: 'w-full h-full object-contain' }),
+                      ]),
+                      h('p', { key: 'hint', className: 'text-xs text-white/60 text-center' }, 'Scan with GoPay, OVO, DANA, ShopeePay, or Mobile Banking'),
+                      h('button', { key: 'close', onClick: () => { setShowSupport(false); setSelectedSupporter(null); }, className: 'w-full py-2.5 rounded-full bg-white/10 hover:bg-white/15 text-xs font-semibold text-white/80 cursor-pointer transition' }, 'Close'),
+                    ]
+                  : [
+                      h('div', { key: 'hdr', className: 'flex items-center justify-between' }, [
+                        h('div', null, [
+                          h('h2', { className: 'font-bold text-lg text-white' }, 'Support Team'),
+                          h('p', { className: 'text-xs text-white/55' }, 'Select a developer or collaborator to support'),
+                        ]),
+                        h('button', { type: 'button', onClick: () => setShowSupport(false), className: 'w-8 h-8 rounded-full bg-white/5 hover:bg-white/15 flex items-center justify-center text-white/60 hover:text-white cursor-pointer transition' }, '✕'),
+                      ]),
+                      h('div', { key: 'list', className: 'space-y-2.5' }, CONTRIBUTORS.map((person) =>
+                        h('div', {
+                          key: person.id,
+                          onClick: () => setSelectedSupporter(person),
+                          className: 'flex items-center gap-3 p-3 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 cursor-pointer transition',
+                        }, [
+                          h('img', { src: person.avatar, alt: person.name, className: 'w-11 h-11 rounded-full object-cover bg-white/10 shrink-0' }),
+                          h('div', { className: 'flex-1 min-w-0' }, [
+                            h('p', { className: 'font-bold text-sm text-white truncate' }, person.name),
+                            h('p', { className: 'text-xs text-white/60 truncate' }, person.role),
+                          ]),
+                          h('span', { className: 'px-3 py-1.5 rounded-full bg-[#2563EB]/20 text-[#93C5FD] text-xs font-semibold shrink-0' }, 'Support'),
+                        ])
+                      )),
+                    ]
               )
             ),
 
