@@ -606,7 +606,8 @@ fun SwaraNativeApp(
 
     var isBarCollapsed by remember { mutableStateOf(false) }
     val appCtx = androidx.compose.ui.platform.LocalContext.current
-    var availableUpdate by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var availableUpdate by remember { mutableStateOf<Triple<String, String, String>?>(null) }
+    var showUpdateNotesDialog by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         val ver = runCatching {
             appCtx.packageManager.getPackageInfo(appCtx.packageName, 0).versionName ?: "1.0.0"
@@ -624,7 +625,18 @@ fun SwaraNativeApp(
                         val json = org.json.JSONObject(r.body?.string().orEmpty())
                         val tag = json.optString("tag_name").removePrefix("v").trim()
                         val html = json.optString("html_url").ifBlank { "https://github.com/swaramusic/Swara/releases" }
-                        if (tag.isNotBlank() && tag != ver && html.startsWith("https://")) tag to html else null
+                        val body = json.optString("body").trim()
+                        val isNewer = tag.split(".").map { it.toIntOrNull() ?: 0 }
+                            .let { t ->
+                                val c = ver.split(".").map { it.toIntOrNull() ?: 0 }
+                                val maxLen = maxOf(t.size, c.size)
+                                (0 until maxLen).firstNotNullOfOrNull { i ->
+                                    val tv = t.getOrElse(i) { 0 }
+                                    val cv = c.getOrElse(i) { 0 }
+                                    if (tv != cv) tv > cv else null
+                                } ?: false
+                            }
+                        if (tag.isNotBlank() && isNewer && html.startsWith("https://")) Triple(tag, html, body) else null
                     }
                 }
             }.getOrNull()
@@ -673,12 +685,16 @@ fun SwaraNativeApp(
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                availableUpdate?.let { (newVer, dlUrl) ->
+                availableUpdate?.let { (newVer, dlUrl, releaseNotes) ->
                     Surface(
                         color = primaryColor.copy(alpha = 0.22f),
                         shape = RoundedCornerShape(14.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f)),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 4.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { showUpdateNotesDialog = true }
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -686,13 +702,14 @@ fun SwaraNativeApp(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(Icons.Default.Update, contentDescription = null, tint = TextInk, modifier = Modifier.size(18.dp))
-                            Text("Update v$newVer available", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextInk, modifier = Modifier.weight(1f))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Update v$newVer tersedia", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextInk)
+                                Text("Ketuk untuk lihat catatan rilis", fontSize = 10.sp, color = TextInk.copy(alpha = 0.7f))
+                            }
                             Surface(
                                 color = primaryColor,
                                 shape = RoundedCornerShape(50),
-                                modifier = Modifier.clip(RoundedCornerShape(50)).clickable {
-                                    runCatching { appCtx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(dlUrl))) }
-                                }
+                                modifier = Modifier.clip(RoundedCornerShape(50)).clickable { showUpdateNotesDialog = true }
                             ) {
                                 Text("Update", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
                             }
@@ -700,6 +717,39 @@ fun SwaraNativeApp(
                                 Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = TextInk, modifier = Modifier.size(15.dp))
                             }
                         }
+                    }
+                    if (showUpdateNotesDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showUpdateNotesDialog = false },
+                            containerColor = CardDark,
+                            titleContentColor = TextInk,
+                            textContentColor = TextInk,
+                            title = { Text("Update v$newVer", fontWeight = FontWeight.Bold) },
+                            text = {
+                                Column(
+                                    modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        releaseNotes.ifBlank { "Perbaikan bug dan peningkatan performa." },
+                                        fontSize = 13.sp,
+                                        lineHeight = 19.sp,
+                                        color = TextInk.copy(alpha = 0.85f)
+                                    )
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    showUpdateNotesDialog = false
+                                    runCatching { appCtx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(dlUrl))) }
+                                }) { Text("Download Update", color = TextInk, fontWeight = FontWeight.Bold) }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showUpdateNotesDialog = false }) {
+                                    Text("Nanti", color = TextInk.copy(alpha = 0.7f))
+                                }
+                            }
+                        )
                     }
                 }
                 state.errorMessage?.let { msg ->

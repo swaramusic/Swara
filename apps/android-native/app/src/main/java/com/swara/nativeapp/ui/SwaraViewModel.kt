@@ -1312,7 +1312,8 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
                             fetchAudioToFile(url, dest)
                         } catch (_: Exception) {
                             runCatching { dest.delete() }
-                            val retryUrl = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality).getOrThrow()
+                            kotlinx.coroutines.delay(350)
+                            val retryUrl = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality, preferNewPipe = true).getOrThrow()
                             fetchAudioToFile(retryUrl, dest)
                         }
                         copyToUserFolder(track, dest, folderUri)
@@ -1341,10 +1342,10 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
                     notifyDownloadProgress(doneCount, totalCount, track.title, finished = false)
                 }
                 notifyDownloadProgress(doneCount, totalCount, "", finished = true, succeeded = succeededCount)
-                val banner = if (succeededCount > 0) {
-                    "Selesai mengunduh $succeededCount / $totalCount lagu"
-                } else {
-                    "Gagal mengunduh ($lastErr)"
+                val banner = when {
+                    succeededCount == totalCount -> "Selesai mengunduh $succeededCount / $totalCount lagu"
+                    succeededCount > 0 -> "Unduhan selesai: $succeededCount / $totalCount berhasil (${totalCount - succeededCount} gagal: $lastErr)"
+                    else -> "Gagal mengunduh ($lastErr)"
                 }
                 _ui.update {
                     it.copy(
@@ -1385,7 +1386,8 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
                     fetchAudioToFile(url, dest)
                 } catch (_: Exception) {
                     runCatching { dest.delete() }
-                    val retryUrl = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality).getOrThrow()
+                    kotlinx.coroutines.delay(350)
+                    val retryUrl = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality, preferNewPipe = true).getOrThrow()
                     fetchAudioToFile(retryUrl, dest)
                 }
                 copyToUserFolder(track, dest, folderUri)

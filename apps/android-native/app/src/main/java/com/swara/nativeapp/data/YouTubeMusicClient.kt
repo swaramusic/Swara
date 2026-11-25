@@ -555,9 +555,15 @@ class YouTubeMusicClient {
         return out.sortedBy { it.startMs }
     }
 
-    suspend fun resolveAudioUrl(videoId: String, hl: String = "id", gl: String = "ID", quality: String = "high"): Result<String> =
+    suspend fun resolveAudioUrl(
+        videoId: String,
+        hl: String = "id",
+        gl: String = "ID",
+        quality: String = "high",
+        preferNewPipe: Boolean = false,
+    ): Result<String> =
         withContext(Dispatchers.IO) {
-            val vrError = if (!vrBlocked) try {
+            val vrError = if (!vrBlocked && !preferNewPipe) try {
                 val payload = JSONObject().apply {
                     put("videoId", videoId)
                     put(
