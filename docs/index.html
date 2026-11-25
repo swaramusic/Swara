@@ -203,6 +203,7 @@
       const [release, setRelease] = useState({ tag: 'v1.0.0', url: RELEASES_URL, label: 'Download APK', hasDirectApk: false });
       const [showSupport, setShowSupport] = useState(false);
       const [showSuggestions, setShowSuggestions] = useState(false);
+      const [openFaq, setOpenFaq] = useState(0);
       const [fbContact, setFbContact] = useState('');
       const [fbMsg, setFbMsg] = useState('');
       const [fbStatus, setFbStatus] = useState({ type: '', text: '' });
@@ -273,7 +274,6 @@
 
           h('main', { key: 'main', className: 'max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-10 grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10 items-center my-auto' }, [
             h('div', { className: 'space-y-5 text-center md:text-left order-2 md:order-1' }, [
-              h('span', { className: 'inline-flex items-center gap-2 px-3.5 py-1 rounded-full text-xs font-semibold bg-[#2563EB]/20 text-[#93C5FD] border border-[#2563EB]/30' }, `${release.tag} • Android • GPL-3.0`),
               h('h1', { className: 'text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-tight' }, 'Swara'),
               h('p', { className: 'text-white/70 text-sm sm:text-base max-w-md mx-auto md:mx-0 leading-relaxed' }, 'Fast & Fluid Music Player.'),
               h('div', { className: 'flex flex-col sm:flex-row items-stretch sm:items-center justify-center md:justify-start gap-3 pt-2' }, [
@@ -317,17 +317,25 @@
 
           h('section', { key: 'faq', id: 'faq', className: 'max-w-6xl w-full mx-auto px-4 sm:px-6 py-8 space-y-5' }, [
             h('h2', { className: 'text-2xl sm:text-3xl font-bold text-center md:text-left' }, 'Quick Guide & FAQ'),
-            h('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-4' }, [
+            h('div', { className: 'space-y-3' }, [
               ['How do I install Swara on Android?', 'Tap Download APK above, open the downloaded .apk file on Android 8.0+, allow "Install from this source" if prompted, and tap Install.'],
               ['Is Swara safe to install?', 'Yes. Swara is 100% open source (GPL-3.0) with no ads, no trackers, and HTTPS-only network rules. You can inspect all source code on GitHub.'],
               ['How do I import Spotify or YouTube Music playlists?', 'Open Library → Import, paste any public Spotify or YouTube Music playlist link, and Swara will convert it automatically.'],
               ['How do I update to the latest version?', 'Swara checks for new GitHub releases automatically on startup, or you can tap Settings → About Swara → Check for updates.'],
-            ].map(([q, a]) =>
-              h('div', { key: q, className: 'p-5 rounded-2xl bg-white/[0.03] border border-white/10 space-y-1.5' }, [
-                h('h3', { className: 'font-semibold text-sm text-[#93C5FD]' }, q),
-                h('p', { className: 'text-xs sm:text-sm text-white/65 leading-relaxed' }, a),
-              ])
-            )),
+            ].map(([q, a], idx) => {
+              const isOpen = openFaq === idx;
+              return h('div', { key: q, className: 'rounded-2xl bg-white/[0.03] border border-white/10 overflow-hidden' }, [
+                h('button', {
+                  type: 'button',
+                  onClick: () => setOpenFaq(isOpen ? -1 : idx),
+                  className: 'w-full px-5 py-4 flex items-center justify-between gap-4 text-left hover:bg-white/[0.03] transition cursor-pointer',
+                }, [
+                  h('span', { className: 'font-semibold text-sm text-[#93C5FD]' }, q),
+                  h('span', { className: 'text-white/60 text-base leading-none shrink-0' }, isOpen ? '−' : '+'),
+                ]),
+                isOpen && h('div', { className: 'px-5 pb-4 text-xs sm:text-sm text-white/70 leading-relaxed border-t border-white/5 pt-3' }, a),
+              ]);
+            })),
           ]),
 
           h('footer', { key: 'foot', className: 'text-center px-4 py-6 text-xs text-white/45' }, 'swaramusic/Swara • Open Source under GPL-3.0'),
