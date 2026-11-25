@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Swara",
+  "version": "0.1.0",
+  "identifier": "app.swara.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm --filter @swara/desktop-ui dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "pnpm --filter @swara/desktop-ui build",
+    "frontendDist": "../../desktop-ui/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Swara",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 640,
+        "decorations": false
+      }
+    ]
+  }
+}
