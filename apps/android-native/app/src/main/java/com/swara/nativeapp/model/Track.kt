@@ -19,6 +19,7 @@ data class UserPlaylist(
     val id: String,
     val name: String,
     val tracks: List<Track>,
+    val artworkUri: String = "",
 )
 
 data class LyricLine(

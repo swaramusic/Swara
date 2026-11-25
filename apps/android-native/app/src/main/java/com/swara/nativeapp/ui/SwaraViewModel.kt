@@ -1011,6 +1011,76 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
         savePlaylists(next)
     }
 
+    fun updatePlaylist(playlistId: String, newName: String, pickedImageUri: android.net.Uri? = null) {
+        val cleanName = newName.trim()
+        if (cleanName.isBlank()) return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            var savedCoverPath: String? = null
+            if (pickedImageUri != null) {
+                runCatching {
+                    val dir = getApplication<Application>().filesDir.resolve("playlist_covers").apply { mkdirs() }
+                    val out = java.io.File(dir, "${playlistId}_${System.currentTimeMillis()}.jpg")
+                    getApplication<Application>().contentResolver.openInputStream(pickedImageUri)?.use { input ->
+                        out.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    if (out.exists() && out.length() > 0L) savedCoverPath = out.absolutePath
+                }
+            }
+            val next = _ui.value.playlists.map { pl ->
+                if (pl.id == playlistId) {
+                    pl.copy(name = cleanName, artworkUri = savedCoverPath ?: pl.artworkUri)
+                } else pl
+            }
+            _ui.update { it.copy(playlists = next) }
+            savePlaylists(next)
+        }
+    }
+
+    fun downloadPlaylist(tracks: List<Track>) {
+        val targets = tracks.filter { t ->
+            t.browseId.isBlank() &&
+                t.id !in _ui.value.downloadingIds &&
+                _ui.value.downloadedTracks.none { it.id == t.id }
+        }
+        if (targets.isEmpty()) return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            targets.forEach { track ->
+                val dest = safeDownloadFile(track.id) ?: return@forEach
+                _ui.update { it.copy(downloadingIds = it.downloadingIds + track.id) }
+                try {
+                    val url = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality).getOrThrow()
+                    if (!url.startsWith("https://", ignoreCase = true)) throw IllegalArgumentException("Invalid URL")
+                    val req = okhttp3.Request.Builder().url(url).build()
+                    val maxBytes = 100L * 1024L * 1024L
+                    dlClient.newCall(req).execute().use { res ->
+                        if (!res.isSuccessful) throw Exception("HTTP ${res.code}")
+                        val body = res.body ?: throw Exception("Empty body")
+                        if (body.contentLength() > maxBytes) throw Exception("File too large")
+                        body.byteStream().use { input ->
+                            dest.outputStream().use { output ->
+                                val buf = ByteArray(8192)
+                                var total = 0L
+                                while (true) {
+                                    val read = input.read(buf)
+                                    if (read == -1) break
+                                    total += read
+                                    if (total > maxBytes) throw Exception("File limit exceeded")
+                                    output.write(buf, 0, read)
+                                }
+                            }
+                        }
+                    }
+                    val updated = listOf(track) + _ui.value.downloadedTracks.filterNot { it.id == track.id }
+                    _ui.update { it.copy(downloadedTracks = updated, downloadingIds = it.downloadingIds - track.id) }
+                    saveTrackList("downloads", updated)
+                } catch (_: Exception) {
+                    runCatching { dest.delete() }
+                    _ui.update { it.copy(downloadingIds = it.downloadingIds - track.id) }
+                }
+            }
+        }
+    }
+
     fun downloadTrack(track: Track) {
         if (track.browseId.isNotBlank() || track.id in _ui.value.downloadingIds) return
         if (_ui.value.downloadedTracks.any { it.id == track.id }) return
@@ -1155,7 +1225,7 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
             pl.tracks.forEach { t ->
                 tArr.put(org.json.JSONObject().put("id", t.id).put("t", t.title).put("a", t.artist).put("img", t.artworkUrl))
             }
-            arr.put(org.json.JSONObject().put("id", pl.id).put("name", pl.name).put("tracks", tArr))
+            arr.put(org.json.JSONObject().put("id", pl.id).put("name", pl.name).put("img", pl.artworkUri).put("tracks", tArr))
         }
         prefs.edit().putString("playlists", arr.toString()).apply()
     }
@@ -1169,7 +1239,7 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
                 val to = tArr.getJSONObject(j)
                 Track(to.getString("id"), to.getString("t"), to.getString("a"), to.getString("img"))
             }
-            UserPlaylist(o.getString("id"), o.getString("name"), tracks)
+            UserPlaylist(o.getString("id"), o.getString("name"), tracks, o.optString("img", ""))
         }
     }.getOrDefault(emptyList())
 

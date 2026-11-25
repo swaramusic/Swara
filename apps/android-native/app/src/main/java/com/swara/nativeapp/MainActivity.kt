@@ -1357,31 +1357,30 @@ fun SwaraNativeApp(
                 }
             }
 
-            // Opened user playlist sheet
-            openedUserPlaylist?.let { pl ->
-                val fresh = state.playlists.find { it.id == pl.id } ?: pl
-                ModalBottomSheet(
-                    onDismissRequest = { openedUserPlaylist = null },
-                    containerColor = CardDark,
-                    contentColor = TextInk
-                ) {
-                    PlaylistSheetContent(
-                        title = fresh.name,
-                        tracks = fresh.tracks,
-                        isLoading = false,
+            // Opened user playlist fullscreen overlay (YouTube Music style)
+            AnimatedVisibility(
+                visible = openedUserPlaylist != null,
+                enter = slideInVertically(tween(220)) { it / 5 } + fadeIn(tween(180)),
+                exit = slideOutVertically(tween(180)) { it / 5 } + fadeOut(tween(150))
+            ) {
+                openedUserPlaylist?.let { pl ->
+                    val fresh = state.playlists.find { it.id == pl.id } ?: pl
+                    UserPlaylistOverlay(
+                        playlist = fresh,
                         likedIds = likedIds,
                         downloadedIds = downloadedIds,
                         downloadingIds = state.downloadingIds,
                         primaryColor = primaryColor,
-                        onPlay = { list, idx ->
-                            vm.playFromList(list, idx)
-                            openedUserPlaylist = null
-                        },
-                        onToggleLike = { vm.toggleLike(it) },
-                        onAddToQueue = { vm.addToQueue(it) },
-                        onDownload = { vm.downloadTrack(it) },
-                        onSaveToPlaylist = { playlistPickerTrack = it },
+                        onClose = { openedUserPlaylist = null },
+                        onPlay = { list, idx -> vm.playFromList(list, idx) },
+                        onShufflePlay = { list -> if (list.isNotEmpty()) vm.playFromList(list.shuffled(), 0) },
+                        onToggleLike = onToggleLikeCb,
+                        onAddToQueue = onAddToQueueCb,
+                        onDownloadTrack = onDownloadCb,
+                        onDownloadAll = { vm.downloadPlaylist(fresh.tracks) },
+                        onSaveToPlaylist = onSaveToPlaylistCb,
                         onRemoveTrack = { t -> vm.removeTrackFromPlaylist(fresh.id, t.id) },
+                        onEditPlaylist = { newName, uri -> vm.updatePlaylist(fresh.id, newName, uri) },
                     )
                 }
             }
@@ -1489,7 +1488,7 @@ fun SwaraNativeApp(
                         TextButton(
                             enabled = !state.isImportingPlaylist,
                             onClick = { vm.importPlaylist(importUrl) { showImportPlaylistDialog = false } }
-                        ) { Text(if (state.isImportingPlaylist) "Mengimpor..." else "Impor", color = primaryColor) }
+                        ) { Text(if (state.isImportingPlaylist) "Mengimpor..." else "Impor", color = TextInk) }
                     },
                     dismissButton = {
                         TextButton(
@@ -1730,7 +1729,7 @@ private fun HomeScreen(
                             (moodLabels[mood] ?: mood).uppercase(),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (selected) primaryColor else TextInk,
+                            color = TextInk,
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
                         )
                     }
@@ -2029,7 +2028,7 @@ private fun ExploreScreen(
                             ) {
                                 Text("Search History", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextInk)
                                 TextButton(onClick = onClearHistory) {
-                                    Text("Clear", fontSize = 12.sp, color = primaryColor)
+                                    Text("Clear", fontSize = 12.sp, color = TextInk)
                                 }
                             }
                             LazyRow(
@@ -2536,7 +2535,7 @@ private fun LibraryScreen(
 
 @Composable
 private fun PlaylistGridCard(pl: UserPlaylist, primaryColor: Color, modifier: Modifier = Modifier, onOpen: () -> Unit) {
-    val coverUrl = pl.tracks.firstOrNull()?.artworkUrl
+    val coverModel: Any? = if (pl.artworkUri.isNotBlank()) java.io.File(pl.artworkUri) else pl.tracks.firstOrNull()?.artworkUrl
     Column(
         modifier = modifier.clip(RoundedCornerShape(16.dp)).clickable(onClick = onOpen),
         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -2546,8 +2545,8 @@ private fun PlaylistGridCard(pl: UserPlaylist, primaryColor: Color, modifier: Mo
             shape = RoundedCornerShape(16.dp),
             modifier = Modifier.fillMaxWidth().aspectRatio(1f)
         ) {
-            if (!coverUrl.isNullOrBlank()) {
-                AsyncImage(model = coverUrl, contentDescription = pl.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            if (coverModel != null) {
+                AsyncImage(model = coverModel, contentDescription = pl.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             } else {
                 Box(modifier = Modifier.fillMaxSize().background(primaryColor.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
                     Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = primaryColor, modifier = Modifier.size(42.dp))
@@ -2555,7 +2554,7 @@ private fun PlaylistGridCard(pl: UserPlaylist, primaryColor: Color, modifier: Mo
             }
         }
         Text(pl.name, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextInk, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text("${pl.tracks.size} lagu", fontSize = 12.sp, color = TextInk.copy(alpha = 0.6f))
+        Text("${pl.tracks.size} ${S.songUnit}", fontSize = 12.sp, color = TextInk.copy(alpha = 0.6f))
     }
 }
 
@@ -2567,9 +2566,9 @@ private fun PlaylistListRow(pl: UserPlaylist, primaryColor: Color, onOpen: () ->
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable(onClick = onOpen)
     ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            val coverUrl = pl.tracks.firstOrNull()?.artworkUrl
-            if (!coverUrl.isNullOrBlank()) {
-                AsyncImage(model = coverUrl, contentDescription = pl.name, contentScale = ContentScale.Crop, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)))
+            val coverModel: Any? = if (pl.artworkUri.isNotBlank()) java.io.File(pl.artworkUri) else pl.tracks.firstOrNull()?.artworkUrl
+            if (coverModel != null) {
+                AsyncImage(model = coverModel, contentDescription = pl.name, contentScale = ContentScale.Crop, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)))
             } else {
                 Box(modifier = Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)).background(primaryColor.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
                     Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = primaryColor)
@@ -2662,8 +2661,8 @@ private fun ArtistListRow(name: String, imageUrl: String?, primaryColor: Color, 
                 Text(name, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextInk)
                 Text("Artis", fontSize = 12.sp, color = TextInk.copy(alpha = 0.6f))
             }
-            TextButton(onClick = onUnfollow, colors = ButtonDefaults.textButtonColors(contentColor = primaryColor)) {
-                Text(S.following, fontSize = 12.sp, color = primaryColor)
+            TextButton(onClick = onUnfollow, colors = ButtonDefaults.textButtonColors(contentColor = TextInk)) {
+                Text(S.following, fontSize = 12.sp, color = TextInk)
             }
         }
     }
@@ -2845,8 +2844,8 @@ private fun StatsScreen(
             item {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("${rankedSongs.size} ${S.topSongsSection}", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = TextInk)
-                    TextButton(onClick = { onPlaySongs(rankedTrackList, 0) }, colors = ButtonDefaults.textButtonColors(contentColor = primaryColor)) {
-                        Text(S.playAll, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = primaryColor)
+                    TextButton(onClick = { onPlaySongs(rankedTrackList, 0) }, colors = ButtonDefaults.textButtonColors(contentColor = TextInk)) {
+                        Text(S.playAll, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextInk)
                     }
                 }
             }
@@ -2967,11 +2966,11 @@ private fun HistoryFullScreenOverlay(
                 IconButton(onClick = onClose) { Icon(Icons.Default.Close, contentDescription = "Close", tint = TextInk) }
                 Text(S.recentPlayed, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = TextInk, modifier = Modifier.weight(1f))
                 if (sorted.isNotEmpty()) {
-                    TextButton(onClick = onClearHistory, colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFFF7A8A))) {
-                        Text(S.clearBtn, fontWeight = FontWeight.SemiBold)
+                    TextButton(onClick = onClearHistory, colors = ButtonDefaults.textButtonColors(contentColor = TextInk)) {
+                        Text(S.clearBtn, fontWeight = FontWeight.SemiBold, color = TextInk)
                     }
-                    TextButton(onClick = { onPlay(sorted, 0) }, colors = ButtonDefaults.textButtonColors(contentColor = primaryColor)) {
-                        Text(S.playAll, fontWeight = FontWeight.Bold)
+                    TextButton(onClick = { onPlay(sorted, 0) }, colors = ButtonDefaults.textButtonColors(contentColor = TextInk)) {
+                        Text(S.playAll, fontWeight = FontWeight.Bold, color = TextInk)
                     }
                 }
             }
@@ -3678,7 +3677,7 @@ private fun SettingsScreen(
                         DropdownMenu(expanded = langExpanded, onDismissRequest = { langExpanded = false }, containerColor = CardDark, modifier = Modifier.heightIn(max = 320.dp)) {
                             SUPPORTED_LANGUAGES.forEach { (code, label) ->
                                 DropdownMenuItem(
-                                    text = { Text(label, color = if (code == language) primaryColor else TextInk) },
+                                    text = { Text(label, fontWeight = if (code == language) FontWeight.Bold else FontWeight.Normal, color = TextInk) },
                                     onClick = { langExpanded = false; onSelectLanguage(code) }
                                 )
                             }
@@ -3698,7 +3697,7 @@ private fun SettingsScreen(
                         DropdownMenu(expanded = countryExpanded, onDismissRequest = { countryExpanded = false }, containerColor = CardDark, modifier = Modifier.heightIn(max = 320.dp)) {
                             SUPPORTED_COUNTRIES.forEach { (code, label) ->
                                 DropdownMenuItem(
-                                    text = { Text("$code \u2022 $label", color = if (code == country) primaryColor else TextInk) },
+                                    text = { Text("$code \u2022 $label", fontWeight = if (code == country) FontWeight.Bold else FontWeight.Normal, color = TextInk) },
                                     onClick = { countryExpanded = false; onSelectCountry(code) }
                                 )
                             }
@@ -3844,6 +3843,315 @@ private fun SettingsScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun UserPlaylistOverlay(
+    playlist: UserPlaylist,
+    likedIds: Set<String>,
+    downloadedIds: Set<String>,
+    downloadingIds: Set<String>,
+    primaryColor: Color,
+    onClose: () -> Unit,
+    onPlay: (List<Track>, Int) -> Unit,
+    onShufflePlay: (List<Track>) -> Unit,
+    onToggleLike: (Track) -> Unit,
+    onAddToQueue: (Track) -> Unit,
+    onDownloadTrack: (Track) -> Unit,
+    onDownloadAll: () -> Unit,
+    onSaveToPlaylist: (Track) -> Unit,
+    onRemoveTrack: (Track) -> Unit,
+    onEditPlaylist: (String, Uri?) -> Unit,
+) {
+    var searchOpen by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var sortMode by remember { mutableStateOf("default") }
+    var showMenuSheet by remember { mutableStateOf(false) }
+    var showEditDialog by remember { mutableStateOf(false) }
+    var editName by remember(playlist.id, playlist.name) { mutableStateOf(playlist.name) }
+    var pickedCoverUri by remember(playlist.id) { mutableStateOf<Uri?>(null) }
+
+    val coverPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri -> if (uri != null) pickedCoverUri = uri }
+
+    val displayedTracks = remember(playlist.tracks, searchQuery, sortMode) {
+        val base = when (sortMode) {
+            "title" -> playlist.tracks.sortedBy { it.title.lowercase() }
+            "artist" -> playlist.tracks.sortedBy { it.artist.lowercase() }
+            else -> playlist.tracks
+        }
+        val q = searchQuery.trim().lowercase()
+        if (q.isEmpty()) base else base.filter { it.title.lowercase().contains(q) || it.artist.lowercase().contains(q) }
+    }
+
+    val coverModel: Any? = when {
+        playlist.artworkUri.isNotBlank() -> java.io.File(playlist.artworkUri)
+        else -> playlist.tracks.firstOrNull()?.artworkUrl
+    }
+    val allDownloaded = playlist.tracks.isNotEmpty() && playlist.tracks.all { it.id in downloadedIds }
+    val anyDownloading = playlist.tracks.any { it.id in downloadingIds }
+
+    Surface(color = BgDark, modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
+            contentPadding = PaddingValues(bottom = 120.dp)
+        ) {
+            item(key = "pl_top_bar") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextInk)
+                    }
+                    if (searchOpen) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search playlist...", color = TextInk.copy(alpha = 0.5f)) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(24.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = primaryColor,
+                                unfocusedBorderColor = TextInk.copy(alpha = 0.2f),
+                                focusedTextColor = TextInk,
+                                unfocusedTextColor = TextInk,
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = { searchOpen = false; searchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Close Search", tint = TextInk)
+                        }
+                    } else {
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClick = { searchOpen = true }) {
+                            Icon(Icons.Default.Search, contentDescription = "Search", tint = TextInk)
+                        }
+                    }
+                }
+            }
+
+            item(key = "pl_hero") {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        color = CardDark,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.size(188.dp)
+                    ) {
+                        if (coverModel != null) {
+                            AsyncImage(model = coverModel, contentDescription = playlist.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        } else {
+                            Box(modifier = Modifier.fillMaxSize().background(primaryColor.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+                                Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = primaryColor, modifier = Modifier.size(56.dp))
+                            }
+                        }
+                    }
+                    Text(playlist.name, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = TextInk, textAlign = TextAlign.Center)
+                    Text("${playlist.tracks.size} ${S.songUnit}", fontSize = 13.sp, color = TextInk.copy(alpha = 0.65f))
+
+                    Row(
+                        modifier = Modifier.padding(top = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            color = TextInk.copy(alpha = 0.1f),
+                            shape = CircleShape,
+                            modifier = Modifier.size(44.dp).clip(CircleShape).clickable(enabled = !anyDownloading, onClick = onDownloadAll)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                if (anyDownloading) {
+                                    CircularProgressIndicator(color = primaryColor, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                                } else {
+                                    Icon(
+                                        if (allDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
+                                        contentDescription = "Download Playlist",
+                                        tint = if (allDownloaded) primaryColor else TextInk,
+                                        modifier = Modifier.size(21.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Surface(
+                            color = TextInk.copy(alpha = 0.1f),
+                            shape = CircleShape,
+                            modifier = Modifier.size(44.dp).clip(CircleShape).clickable {
+                                editName = playlist.name
+                                pickedCoverUri = null
+                                showEditDialog = true
+                            }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.Edit, contentDescription = "Edit Playlist", tint = TextInk, modifier = Modifier.size(20.dp))
+                            }
+                        }
+                        Surface(
+                            color = TextInk,
+                            shape = CircleShape,
+                            modifier = Modifier.size(56.dp).clip(CircleShape).clickable {
+                                if (displayedTracks.isNotEmpty()) onPlay(displayedTracks, 0)
+                            }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = S.playBtn, tint = BgDark, modifier = Modifier.size(30.dp))
+                            }
+                        }
+                        Surface(
+                            color = TextInk.copy(alpha = 0.1f),
+                            shape = CircleShape,
+                            modifier = Modifier.size(44.dp).clip(CircleShape).clickable { onShufflePlay(displayedTracks) }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.Shuffle, contentDescription = "Shuffle", tint = TextInk, modifier = Modifier.size(20.dp))
+                            }
+                        }
+                        Surface(
+                            color = TextInk.copy(alpha = 0.1f),
+                            shape = CircleShape,
+                            modifier = Modifier.size(44.dp).clip(CircleShape).clickable { showMenuSheet = true }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "More", tint = TextInk, modifier = Modifier.size(21.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
+            itemsIndexed(displayedTracks, key = { idx, t -> "${playlist.id}_${idx}_${t.id}" }) { idx, t ->
+                TrackRow(
+                    track = t,
+                    isLiked = t.id in likedIds,
+                    isDownloaded = t.id in downloadedIds,
+                    isDownloading = t.id in downloadingIds,
+                    primaryColor = primaryColor,
+                    onClick = { onPlay(displayedTracks, idx) },
+                    onToggleLike = { onToggleLike(t) },
+                    onAddToQueue = { onAddToQueue(t) },
+                    onDownload = { onDownloadTrack(t) },
+                    onSaveToPlaylist = { onSaveToPlaylist(t) },
+                    onRemoveFromPlaylist = { onRemoveTrack(t) },
+                )
+            }
+        }
+    }
+
+    if (showMenuSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showMenuSheet = false },
+            containerColor = CardDark,
+            contentColor = TextInk
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (coverModel != null) {
+                        AsyncImage(model = coverModel, contentDescription = playlist.name, contentScale = ContentScale.Crop, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)))
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(playlist.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextInk)
+                        Text("${playlist.tracks.size} ${S.songUnit}", fontSize = 12.sp, color = TextInk.copy(alpha = 0.65f))
+                    }
+                }
+                HorizontalDivider(color = TextInk.copy(alpha = 0.08f))
+                SettingsFlatRow(Icons.Default.Shuffle, "Shuffle play", TextInk) {
+                    showMenuSheet = false; onShufflePlay(displayedTracks)
+                }
+                val sortLabel = when (sortMode) {
+                    "title" -> "Sort: Title (A-Z)"
+                    "artist" -> "Sort: Artist (A-Z)"
+                    else -> "Sort: Default order"
+                }
+                SettingsFlatRow(Icons.Default.Sort, sortLabel, TextInk) {
+                    sortMode = when (sortMode) {
+                        "default" -> "title"
+                        "title" -> "artist"
+                        else -> "default"
+                    }
+                }
+                SettingsFlatRow(Icons.AutoMirrored.Filled.PlaylistAdd, "Add all to queue", TextInk) {
+                    showMenuSheet = false; displayedTracks.forEach { onAddToQueue(it) }
+                }
+                SettingsFlatRow(Icons.Default.Download, "Download playlist", TextInk) {
+                    showMenuSheet = false; onDownloadAll()
+                }
+                SettingsFlatRow(Icons.Default.Edit, "Edit playlist", TextInk) {
+                    showMenuSheet = false
+                    editName = playlist.name
+                    pickedCoverUri = null
+                    showEditDialog = true
+                }
+            }
+        }
+    }
+
+    if (showEditDialog) {
+        AlertDialog(
+            onDismissRequest = { showEditDialog = false },
+            containerColor = CardDark,
+            titleContentColor = TextInk,
+            textContentColor = TextInk,
+            title = { Text("Edit Playlist", fontWeight = FontWeight.Bold, color = TextInk) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    val previewModel: Any? = pickedCoverUri ?: coverModel
+                    Surface(
+                        color = BgDark,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.size(110.dp).clip(RoundedCornerShape(14.dp)).clickable { coverPicker.launch("image/*") }
+                    ) {
+                        if (previewModel != null) {
+                            AsyncImage(model = previewModel, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        } else {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.AddPhotoAlternate, contentDescription = "Pick Photo", tint = TextInk, modifier = Modifier.size(34.dp))
+                            }
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = { coverPicker.launch("image/*") },
+                        shape = RoundedCornerShape(50),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextInk)
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Pilih Foto Cover", color = TextInk, fontSize = 12.sp)
+                    }
+                    OutlinedTextField(
+                        value = editName,
+                        onValueChange = { editName = it },
+                        label = { Text("Nama Playlist", color = TextInk.copy(alpha = 0.7f)) },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = primaryColor,
+                            unfocusedBorderColor = TextInk.copy(alpha = 0.25f),
+                            focusedTextColor = TextInk,
+                            unfocusedTextColor = TextInk,
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onEditPlaylist(editName, pickedCoverUri)
+                    showEditDialog = false
+                }) { Text("Simpan", color = TextInk, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditDialog = false }) { Text("Batal", color = TextInk.copy(alpha = 0.7f)) }
+            }
+        )
+    }
+}
+
 @Composable
 private fun PlaylistSheetContent(
     title: String,
@@ -3894,19 +4202,8 @@ private fun PlaylistSheetContent(
                         onAddToQueue = { onAddToQueue(t) },
                         onDownload = { onDownload(t) },
                         onSaveToPlaylist = { onSaveToPlaylist(t) },
+                        onRemoveFromPlaylist = onRemoveTrack?.let { fn -> { fn(t) } },
                     )
-                    if (onRemoveTrack != null) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.End
-                        ) {
-                            TextButton(onClick = { onRemoveTrack(t) }, colors = ButtonDefaults.textButtonColors(contentColor = primaryColor)) {
-                                Icon(Icons.Default.VisibilityOff, contentDescription = null, modifier = Modifier.size(15.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Remove / Hide from playlist", fontSize = 11.sp)
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -4724,6 +5021,7 @@ private fun TrackRow(
     onAddToQueue: () -> Unit,
     onDownload: () -> Unit,
     onSaveToPlaylist: () -> Unit,
+    onRemoveFromPlaylist: (() -> Unit)? = null,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Row(
@@ -4772,10 +5070,17 @@ private fun TrackRow(
                     onClick = { menuOpen = false; onSaveToPlaylist() }
                 )
                 DropdownMenuItem(
-                    text = { Text(if (isDownloading) "Mengunduh..." else if (isDownloaded) "Tersimpan Offline" else "Unduh Offline", color = Color.White) },
-                    leadingIcon = { Icon(Icons.Default.Download, contentDescription = null, tint = if (isDownloaded) primaryColor else Color.White) },
+                    text = { Text(if (isDownloading) "Mengunduh..." else if (isDownloaded) "Tersimpan Offline" else "Unduh Offline", color = TextInk) },
+                    leadingIcon = { Icon(Icons.Default.Download, contentDescription = null, tint = if (isDownloaded) primaryColor else TextInk) },
                     onClick = { menuOpen = false; onDownload() }
                 )
+                if (onRemoveFromPlaylist != null) {
+                    DropdownMenuItem(
+                        text = { Text("Remove from playlist", color = TextInk) },
+                        leadingIcon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = TextInk) },
+                        onClick = { menuOpen = false; onRemoveFromPlaylist() }
+                    )
+                }
             }
         }
     }
@@ -4996,7 +5301,7 @@ private fun FullscreenPlayerOverlay(
                                     AsyncImage(model = t.artworkUrl, contentDescription = t.title, contentScale = ContentScale.Crop, modifier = Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)))
                                     Spacer(Modifier.width(12.dp))
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(t.title, fontWeight = if (isCur) FontWeight.Bold else FontWeight.Medium, color = if (isCur) primaryColor else Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(t.title, fontWeight = if (isCur) FontWeight.Bold else FontWeight.Medium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Text(t.artist, fontSize = 12.sp, color = Color.White.copy(alpha = 0.65f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
                                     if (!isCur) {
@@ -5311,7 +5616,7 @@ private fun ListenTogetherSheetContent(
         if (roomCode != null) {
             Surface(color = TextInk.copy(alpha = 0.08f), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(if (isHost) "Kamu adalah Host \u2022 Kode Ruang: $roomCode" else "Tamu \u2022 Kode Ruang: $roomCode", fontWeight = FontWeight.Bold, color = primaryColor)
+                    Text(if (isHost) "Kamu adalah Host \u2022 Kode Ruang: $roomCode" else "Tamu \u2022 Kode Ruang: $roomCode", fontWeight = FontWeight.Bold, color = TextInk)
                     Text(status ?: "Aktif", fontSize = 12.sp, color = TextInk.copy(alpha = 0.75f))
                 }
             }
@@ -5776,19 +6081,8 @@ private fun ArtistSheetContent(
                         onAddToQueue = { onAddToQueue(t) },
                         onDownload = { onDownload(t) },
                         onSaveToPlaylist = { onSaveToPlaylist(t) },
+                        onRemoveFromPlaylist = onRemoveTrack?.let { fn -> { fn(t) } },
                     )
-                    if (onRemoveTrack != null) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.End
-                        ) {
-                            TextButton(onClick = { onRemoveTrack(t) }, colors = ButtonDefaults.textButtonColors(contentColor = primaryColor)) {
-                                Icon(Icons.Default.VisibilityOff, contentDescription = null, modifier = Modifier.size(15.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Remove / Hide from playlist", fontSize = 11.sp)
-                            }
-                        }
-                    }
                 }
             }
         }
