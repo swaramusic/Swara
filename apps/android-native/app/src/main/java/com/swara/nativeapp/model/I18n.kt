@@ -139,6 +139,16 @@ data class LangStrings(
     val tabLyrics: String = "Lyrics",
     val tabQueue: String = "Queue",
     val playBtn: String = "Play",
+    val storageTitle: String = "Storage",
+    val storageSubtitle: String = "Downloads \u2022 Cache \u2022 Listen History",
+    val downloadedSongsLabel: String = "Downloaded songs",
+    val clearAllDownloads: String = "Clear all downloads",
+    val clearListenHistory: String = "Clear listen history",
+    val songCacheSection: String = "Song Cache",
+    val enableSongCache: String = "Enable song cache",
+    val maxSongCacheSize: String = "Max song cache size",
+    val clearSongCache: String = "Clear song cache",
+    val clearBtn: String = "Clear",
 )
 
 private val EN_STRINGS = LangStrings(
@@ -402,6 +412,16 @@ private val ID_STRINGS = LangStrings(
     tabLyrics = "Lirik",
     tabQueue = "Antrean",
     playBtn = "Putar",
+    storageTitle = "Penyimpanan",
+    storageSubtitle = "Unduhan \u2022 Cache \u2022 Riwayat Putar",
+    downloadedSongsLabel = "Lagu diunduh",
+    clearAllDownloads = "Hapus semua unduhan",
+    clearListenHistory = "Hapus riwayat mendengarkan",
+    songCacheSection = "Cache Lagu",
+    enableSongCache = "Aktifkan cache lagu",
+    maxSongCacheSize = "Ukuran maksimal cache lagu",
+    clearSongCache = "Bersihkan cache lagu",
+    clearBtn = "Hapus",
 )
 
 fun stringsFor(langCode: String): LangStrings = when {

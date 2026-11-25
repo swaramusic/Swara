@@ -102,6 +102,8 @@ data class SwaraUiState(
     val listenStatus: String? = null,
     val identifyResults: List<Track> = emptyList(),
     val isIdentifying: Boolean = false,
+    val songCacheEnabled: Boolean = true,
+    val maxSongCacheMb: Int = 1126,
     val errorMessage: String? = null,
 )
 
@@ -152,6 +154,8 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
             discordUsername = prefs.getString("discord_username", "") ?: "",
             discordShowButtons = prefs.getBoolean("discord_show_buttons", true),
             discordTemplate = prefs.getString("discord_template", "app") ?: "app",
+            songCacheEnabled = prefs.getBoolean("song_cache_enabled", true),
+            maxSongCacheMb = prefs.getInt("max_song_cache_mb", 1126),
         )
     )
     val ui: StateFlow<SwaraUiState> = _ui.asStateFlow()
@@ -1058,6 +1062,37 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
         val updated = _ui.value.downloadedTracks.filterNot { it.id == trackId }
         _ui.update { it.copy(downloadedTracks = updated) }
         saveTrackList("downloads", updated)
+    }
+
+    fun clearListenHistory() {
+        saveTrackList("recent", emptyList())
+        _ui.update { it.copy(recentTracks = emptyList()) }
+    }
+
+    fun clearAllDownloads() {
+        _ui.value.downloadedTracks.forEach { safeDownloadFile(it.id)?.delete() }
+        val dlDir = getApplication<Application>().filesDir.resolve("downloads")
+        runCatching { dlDir.listFiles()?.forEach { it.delete() } }
+        saveTrackList("downloads", emptyList())
+        _ui.update { it.copy(downloadedTracks = emptyList()) }
+    }
+
+    fun setSongCacheEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("song_cache_enabled", enabled).apply()
+        _ui.update { it.copy(songCacheEnabled = enabled) }
+    }
+
+    fun setMaxSongCacheMb(mb: Int) {
+        val clamped = mb.coerceIn(128, 2048)
+        prefs.edit().putInt("max_song_cache_mb", clamped).apply()
+        _ui.update { it.copy(maxSongCacheMb = clamped) }
+    }
+
+    fun clearSongCache() {
+        val app = getApplication<Application>()
+        runCatching { coil.Coil.imageLoader(app).memoryCache?.clear() }
+        runCatching { app.cacheDir.resolve("image_cache").deleteRecursively() }
+        runCatching { app.cacheDir.resolve("song_cache").deleteRecursively() }
     }
 
     private fun recordPlayStats(track: Track) {

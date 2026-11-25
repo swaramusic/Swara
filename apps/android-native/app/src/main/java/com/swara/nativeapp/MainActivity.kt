@@ -524,6 +524,7 @@ fun SwaraNativeApp(
     var showFriendsStats by remember { mutableStateOf(false) }
     var showDiscordSheet by remember { mutableStateOf(false) }
     var showAboutSheet by remember { mutableStateOf(false) }
+    var showStorageSheet by remember { mutableStateOf(false) }
     var ambientMode by remember { mutableStateOf(false) }
     var openedUserPlaylist by remember { mutableStateOf<UserPlaylist?>(null) }
     val deviceAudioLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -533,7 +534,7 @@ fun SwaraNativeApp(
     // Intercept system Back button so it closes overlays/tabs instead of exiting the app
     val hasOpenOverlay = showSongMenuSheet || showEqSheet || showSoundStyleSheet ||
         showIdentifySheet || showListenSheet || showHistorySheet || showFriendsStats ||
-        showDiscordSheet || showAboutSheet || showRecapSheet || showFullscreen || openedUserPlaylist != null ||
+        showDiscordSheet || showAboutSheet || showStorageSheet || showRecapSheet || showFullscreen || openedUserPlaylist != null ||
         playlistPickerTrack != null || showCreatePlaylistDialog || showImportPlaylistDialog ||
         state.openedArtistName != null || state.openedPlaylistTitle != null || state.openedAlbumTitle != null
 
@@ -546,6 +547,7 @@ fun SwaraNativeApp(
             showListenSheet -> showListenSheet = false
             showDiscordSheet -> showDiscordSheet = false
             showAboutSheet -> showAboutSheet = false
+            showStorageSheet -> showStorageSheet = false
             playlistPickerTrack != null -> playlistPickerTrack = null
             showCreatePlaylistDialog -> showCreatePlaylistDialog = false
             showImportPlaylistDialog -> showImportPlaylistDialog = false
@@ -831,6 +833,7 @@ fun SwaraNativeApp(
                             onCycleSleepTimer = { vm.cycleSleepTimer() },
                             onOpenEq = { showEqSheet = true },
                             onOpenSoundStyle = { showSoundStyleSheet = true },
+                            onOpenStorage = { showStorageSheet = true },
                             onOpenAbout = { showAboutSheet = true },
                         )
                     }
@@ -1177,6 +1180,7 @@ fun SwaraNativeApp(
                     onAddToQueue = { vm.addToQueue(it) },
                     onDownload = { vm.downloadTrack(it) },
                     onSaveToPlaylist = { playlistPickerTrack = it },
+                    onClearHistory = { vm.clearListenHistory() },
                     onClose = { showHistorySheet = false },
                 )
             }
@@ -1230,6 +1234,25 @@ fun SwaraNativeApp(
                     primaryColor = primaryColor,
                     glowColor = glowColor,
                     onClose = { showAboutSheet = false },
+                )
+            }
+
+            AnimatedVisibility(
+                visible = showStorageSheet,
+                enter = slideInVertically(tween(240)) { it / 4 } + fadeIn(tween(200)),
+                exit = slideOutVertically(tween(200)) { it / 4 } + fadeOut(tween(180))
+            ) {
+                StorageOverlay(
+                    recentCount = state.recentTracks.size,
+                    songCacheEnabled = state.songCacheEnabled,
+                    maxSongCacheMb = state.maxSongCacheMb,
+                    primaryColor = primaryColor,
+                    onToggleSongCache = { vm.setSongCacheEnabled(it) },
+                    onChangeMaxCacheMb = { vm.setMaxSongCacheMb(it) },
+                    onClearDownloads = { vm.clearAllDownloads() },
+                    onClearCache = { vm.clearSongCache() },
+                    onClearHistory = { vm.clearListenHistory() },
+                    onClose = { showStorageSheet = false },
                 )
             }
 
@@ -2848,6 +2871,7 @@ private fun HistoryFullScreenOverlay(
     onAddToQueue: (Track) -> Unit,
     onDownload: (Track) -> Unit,
     onSaveToPlaylist: (Track) -> Unit,
+    onClearHistory: () -> Unit,
     onClose: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
@@ -2874,6 +2898,9 @@ private fun HistoryFullScreenOverlay(
                 IconButton(onClick = onClose) { Icon(Icons.Default.Close, contentDescription = "Close", tint = TextInk) }
                 Text(S.recentPlayed, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = TextInk, modifier = Modifier.weight(1f))
                 if (sorted.isNotEmpty()) {
+                    TextButton(onClick = onClearHistory, colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFFF7A8A))) {
+                        Text(S.clearBtn, fontWeight = FontWeight.SemiBold)
+                    }
                     TextButton(onClick = { onPlay(sorted, 0) }, colors = ButtonDefaults.textButtonColors(contentColor = primaryColor)) {
                         Text(S.playAll, fontWeight = FontWeight.Bold)
                     }
@@ -3370,6 +3397,7 @@ private fun SettingsScreen(
     onCycleSleepTimer: () -> Unit,
     onOpenEq: () -> Unit,
     onOpenSoundStyle: () -> Unit,
+    onOpenStorage: () -> Unit,
     onOpenAbout: () -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -3610,6 +3638,15 @@ private fun SettingsScreen(
                 }
             }
         }
+        HorizontalDivider(color = TextInk.copy(alpha = 0.08f))
+        SettingsGroupHeader(
+            icon = Icons.Default.Storage,
+            title = S.storageTitle,
+            subtitle = S.storageSubtitle,
+            expanded = false,
+            primaryColor = primaryColor,
+            onClick = onOpenStorage
+        )
         HorizontalDivider(color = TextInk.copy(alpha = 0.08f))
         SettingsGroupHeader(
             icon = Icons.Default.Info,
@@ -4125,6 +4162,159 @@ private fun AboutOverlay(
                 Spacer(Modifier.height(12.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun StorageOverlay(
+    recentCount: Int,
+    songCacheEnabled: Boolean,
+    maxSongCacheMb: Int,
+    primaryColor: Color,
+    onToggleSongCache: (Boolean) -> Unit,
+    onChangeMaxCacheMb: (Int) -> Unit,
+    onClearDownloads: () -> Unit,
+    onClearCache: () -> Unit,
+    onClearHistory: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var downloadBytes by remember { mutableStateOf(0L) }
+    var cacheBytes by remember { mutableStateOf(0L) }
+    var refreshTick by remember { mutableStateOf(0) }
+
+    LaunchedEffect(refreshTick) {
+        val (dl, ca) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            fun dirBytes(f: java.io.File): Long =
+                if (!f.exists()) 0L else if (f.isFile) f.length() else f.listFiles()?.sumOf { dirBytes(it) } ?: 0L
+            dirBytes(ctx.filesDir.resolve("downloads")) to (dirBytes(ctx.cacheDir.resolve("image_cache")) + dirBytes(ctx.cacheDir.resolve("song_cache")))
+        }
+        downloadBytes = dl
+        cacheBytes = ca
+    }
+
+    fun fmtBytes(b: Long): String = when {
+        b >= 1024L * 1024L * 1024L -> String.format("%.1f GB", b / (1024.0 * 1024.0 * 1024.0))
+        b >= 1024L * 1024L -> String.format("%.0f MB", b / (1024.0 * 1024.0))
+        b >= 1024L -> String.format("%.0f KB", b / 1024.0)
+        else -> "$b B"
+    }
+    fun fmtMaxMb(mb: Int): String = if (mb >= 1024) String.format("%.1f GB", mb / 1024.0) else "$mb MB"
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BgDark)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            IconButton(onClick = onClose, modifier = Modifier.size(38.dp)) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextInk)
+            }
+            Text(S.storageTitle, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = TextInk)
+        }
+
+        Text(S.storageTitle, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextInk.copy(alpha = 0.6f), modifier = Modifier.padding(start = 4.dp))
+        Surface(color = CardDark, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(Icons.Default.DownloadDone, contentDescription = null, tint = TextInk, modifier = Modifier.size(22.dp))
+                    Text(S.downloadedSongsLabel, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextInk, modifier = Modifier.weight(1f))
+                    Text(fmtBytes(downloadBytes), fontSize = 13.sp, color = TextInk.copy(alpha = 0.65f))
+                }
+                HorizontalDivider(color = TextInk.copy(alpha = 0.06f))
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        onClearDownloads()
+                        refreshTick++
+                    }.padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = TextInk, modifier = Modifier.size(22.dp))
+                    Text(S.clearAllDownloads, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextInk, modifier = Modifier.weight(1f))
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextInk.copy(alpha = 0.5f))
+                }
+                HorizontalDivider(color = TextInk.copy(alpha = 0.06f))
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        onClearHistory()
+                    }.padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(Icons.Default.History, contentDescription = null, tint = TextInk, modifier = Modifier.size(22.dp))
+                    Text(S.clearListenHistory, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextInk, modifier = Modifier.weight(1f))
+                    Text("$recentCount", fontSize = 13.sp, color = TextInk.copy(alpha = 0.55f))
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextInk.copy(alpha = 0.5f))
+                }
+            }
+        }
+
+        Text(S.songCacheSection, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextInk.copy(alpha = 0.6f), modifier = Modifier.padding(start = 4.dp, top = 4.dp))
+        Surface(color = CardDark, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(Icons.Default.CloudDone, contentDescription = null, tint = TextInk, modifier = Modifier.size(22.dp))
+                    Text(S.enableSongCache, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextInk, modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = songCacheEnabled,
+                        onCheckedChange = onToggleSongCache,
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = primaryColor)
+                    )
+                }
+                HorizontalDivider(color = TextInk.copy(alpha = 0.06f))
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(Icons.Default.CloudQueue, contentDescription = null, tint = TextInk, modifier = Modifier.size(22.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(S.maxSongCacheSize, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextInk)
+                            Text(fmtMaxMb(maxSongCacheMb), fontSize = 12.sp, color = TextInk.copy(alpha = 0.65f))
+                        }
+                    }
+                    Slider(
+                        value = maxSongCacheMb.toFloat(),
+                        onValueChange = { onChangeMaxCacheMb(it.toInt()) },
+                        valueRange = 128f..2048f,
+                        colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = primaryColor)
+                    )
+                    val maxBytes = maxSongCacheMb.toLong() * 1024L * 1024L
+                    val ratio = if (maxBytes > 0L) (cacheBytes.toFloat() / maxBytes.toFloat()).coerceIn(0f, 1f) else 0f
+                    LinearProgressIndicator(
+                        progress = { ratio },
+                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)),
+                        color = primaryColor,
+                        trackColor = TextInk.copy(alpha = 0.14f)
+                    )
+                    Text("${fmtBytes(cacheBytes)} / ${fmtMaxMb(maxSongCacheMb)}", fontSize = 12.sp, color = TextInk.copy(alpha = 0.7f))
+                }
+                HorizontalDivider(color = TextInk.copy(alpha = 0.06f))
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        onClearCache()
+                        refreshTick++
+                    }.padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(Icons.Default.CleaningServices, contentDescription = null, tint = TextInk, modifier = Modifier.size(22.dp))
+                    Text(S.clearSongCache, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextInk, modifier = Modifier.weight(1f))
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextInk.copy(alpha = 0.5f))
+                }
+            }
+        }
+        Spacer(Modifier.height(24.dp))
     }
 }
 
@@ -4658,11 +4848,12 @@ private fun FullscreenPlayerOverlay(
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 when (activeTab) {
                     PlayerTab.SONG -> {
+                        val coverInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth(0.76f)
                                 .aspectRatio(1f)
-                                .clickable { isVinylMode = !isVinylMode },
+                                .clickable(interactionSource = coverInteraction, indication = null) { isVinylMode = !isVinylMode },
                             contentAlignment = Alignment.Center
                         ) {
                             if (isVinylMode) {
