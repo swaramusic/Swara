@@ -527,6 +527,27 @@ fun SwaraNativeApp(
     var showStorageSheet by remember { mutableStateOf(false) }
     var ambientMode by remember { mutableStateOf(false) }
     var openedUserPlaylist by remember { mutableStateOf<UserPlaylist?>(null) }
+    var pendingDownloadTracks by remember { mutableStateOf<List<Track>?>(null) }
+    val appCtxForTree = androidx.compose.ui.platform.LocalContext.current
+    val downloadFolderLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                appCtxForTree.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            }
+            vm.setDownloadTreeUri(uri.toString())
+            val queued = pendingDownloadTracks
+            if (queued != null) {
+                pendingDownloadTracks = null
+                if (queued.size == 1) vm.downloadTrack(queued.first(), uri.toString())
+                else vm.downloadPlaylist(queued, uri.toString())
+            }
+        }
+    }
     val deviceAudioLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris -> vm.importDeviceAudio(uris) }
@@ -578,7 +599,7 @@ fun SwaraNativeApp(
     }
     val onToggleLikeCb: (Track) -> Unit = remember(vm) { { vm.toggleLike(it) } }
     val onAddToQueueCb: (Track) -> Unit = remember(vm) { { vm.addToQueue(it) } }
-    val onDownloadCb: (Track) -> Unit = remember(vm) { { vm.downloadTrack(it) } }
+    val onDownloadCb: (Track) -> Unit = remember { { t -> pendingDownloadTracks = listOf(t) } }
     val onSaveToPlaylistCb: (Track) -> Unit = remember { { playlistPickerTrack = it } }
     val onOpenArtistCb: (String) -> Unit = remember(vm) { { vm.openArtist(it) } }
 
@@ -706,9 +727,10 @@ fun SwaraNativeApp(
                         contentKey = { it },
                         transitionSpec = {
                             val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
-                            (slideInHorizontally(tween(170, easing = FastOutSlowInEasing)) { dir * it / 16 } +
-                                fadeIn(tween(150))) togetherWith
-                                fadeOut(tween(110))
+                            (slideInHorizontally(spring(dampingRatio = 0.88f, stiffness = Spring.StiffnessMediumLow)) { dir * it / 12 } +
+                                fadeIn(tween(200, easing = FastOutSlowInEasing))) togetherWith
+                                (slideOutHorizontally(tween(160, easing = FastOutSlowInEasing)) { -dir * it / 16 } +
+                                    fadeOut(tween(140)))
                         },
                         label = "mainTabTransition"
                     ) { currentNavTab ->
@@ -870,150 +892,243 @@ fun SwaraNativeApp(
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .animateContentSize(animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        if (isBarCollapsed) {
-                            Surface(
-                                color = liquidGlassBg,
-                                shape = CircleShape,
-                                border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
-                                modifier = Modifier.size(54.dp).clip(CircleShape).clickable { isBarCollapsed = false }
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(activeIcon, contentDescription = "Expand Nav", tint = TextInk, modifier = Modifier.size(24.dp))
-                                }
-                            }
-                        }
-
-                        val curTrack = state.currentTrack
-                        if (curTrack != null) {
-                            Surface(
-                                color = liquidGlassBg,
-                                shape = RoundedCornerShape(30.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
-                                modifier = Modifier.weight(1f).clip(RoundedCornerShape(30.dp)).clickable { showFullscreen = true }
-                            ) {
-                                Column {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        AsyncImage(
-                                            model = curTrack.artworkUrl,
-                                            contentDescription = curTrack.title,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.size(38.dp).clip(RoundedCornerShape(10.dp))
-                                        )
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(curTrack.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextInk, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            Text(curTrack.artist, fontSize = 11.sp, color = TextInk.copy(alpha = 0.68f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        }
-                                        IconButton(onClick = { vm.toggleLike(curTrack) }, modifier = Modifier.size(34.dp)) {
-                                            Icon(
-                                                if (curTrack.id in likedIds) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                                contentDescription = "Like",
-                                                tint = if (curTrack.id in likedIds) primaryColor else TextInk,
-                                                modifier = Modifier.size(19.dp)
-                                            )
-                                        }
-                                        Surface(
-                                            color = TextInk,
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(36.dp).clip(CircleShape).clickable { vm.togglePlayPause() }
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Icon(
-                                                    if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                                    contentDescription = "Play/Pause",
-                                                    tint = BgDark,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                            }
-                                        }
-                                        IconButton(onClick = { vm.playNext() }, modifier = Modifier.size(34.dp)) {
-                                            Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = TextInk, modifier = Modifier.size(20.dp))
-                                        }
-                                    }
-                                    if (!isBarCollapsed) {
-                                        MiniPlayerProgress(progressFlow = vm.progress, primaryColor = primaryColor, collapseFraction = 0f)
-                                    }
-                                }
-                            }
-                        } else if (isBarCollapsed) {
-                            Surface(
-                                color = liquidGlassBg,
-                                shape = RoundedCornerShape(30.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
-                                modifier = Modifier.weight(1f).height(54.dp).clip(RoundedCornerShape(30.dp)).clickable { isBarCollapsed = false }
+                    if (state.downloadTotal > 0) {
+                        val dlProgress = (state.downloadDone.toFloat() / state.downloadTotal.toFloat()).coerceIn(0f, 1f)
+                        Surface(
+                            color = liquidGlassBg,
+                            shape = RoundedCornerShape(18.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, liquidGlassBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Row(
-                                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(navTabLabel(activeTab), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextInk)
-                                    Icon(Icons.Default.ExpandLess, contentDescription = "Expand", tint = TextInk.copy(alpha = 0.7f))
+                                    Text(
+                                        "Mengunduh ${state.downloadDone} / ${state.downloadTotal} lagu",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = TextInk
+                                    )
+                                    Text(
+                                        state.downloadCurrentTitle,
+                                        fontSize = 11.sp,
+                                        color = TextInk.copy(alpha = 0.65f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f).padding(start = 10.dp)
+                                    )
                                 }
+                                LinearProgressIndicator(
+                                    progress = { dlProgress },
+                                    color = primaryColor,
+                                    trackColor = TextInk.copy(alpha = 0.14f),
+                                    modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(50))
+                                )
                             }
                         }
                     }
 
-                    AnimatedVisibility(
-                        visible = !isBarCollapsed,
-                        enter = fadeIn(tween(140)),
-                        exit = fadeOut(tween(110))
-                    ) {
-                        Surface(
-                            color = liquidGlassBg,
-                            shape = RoundedCornerShape(32.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
-                            modifier = Modifier.fillMaxWidth().height(64.dp)
-                        ) {
+                    AnimatedContent(
+                        targetState = isBarCollapsed,
+                        transitionSpec = {
+                            (fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
+                                slideInVertically(spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)) { it / 4 }) togetherWith
+                                (fadeOut(tween(140)) + slideOutVertically(tween(140)) { it / 4 })
+                        },
+                        label = "bottomBarMorph"
+                    ) { collapsed ->
+                        if (collapsed) {
                             Row(
-                                modifier = Modifier.fillMaxSize().padding(vertical = 2.dp, horizontal = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceAround,
-                                verticalAlignment = Alignment.CenterVertically
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                NavTab.values().forEach { tab ->
-                                    val selected = activeTab == tab
-                                    val iconScale by animateFloatAsState(
-                                        targetValue = if (selected) 1.14f else 1.0f,
-                                        animationSpec = spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMedium),
-                                        label = "navScale"
-                                    )
-                                    val icon = when (tab) {
-                                        NavTab.HOME -> Icons.Default.Home
-                                        NavTab.EXPLORE -> Icons.Default.Explore
-                                        NavTab.LIBRARY -> Icons.Default.LibraryMusic
-                                        NavTab.STATS -> Icons.Default.BarChart
-                                        NavTab.SETTINGS -> Icons.Default.Settings
+                                Surface(
+                                    color = liquidGlassBg,
+                                    shape = CircleShape,
+                                    border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
+                                    modifier = Modifier.size(54.dp).clip(CircleShape).clickable { isBarCollapsed = false }
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(activeIcon, contentDescription = "Expand Nav", tint = TextInk, modifier = Modifier.size(24.dp))
                                     }
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .padding(horizontal = 4.dp, vertical = 4.dp)
-                                            .clip(RoundedCornerShape(22.dp))
-                                            .background(if (selected) TextInk.copy(alpha = 0.14f) else Color.Transparent)
-                                            .clickable { activeTab = tab; isBarCollapsed = false }
-                                            .padding(horizontal = 2.dp, vertical = 4.dp)
+                                }
+                                val curTrack = state.currentTrack
+                                if (curTrack != null) {
+                                    Surface(
+                                        color = liquidGlassBg,
+                                        shape = RoundedCornerShape(30.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
+                                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(30.dp)).clickable { showFullscreen = true }
                                     ) {
-                                        Icon(icon, contentDescription = navTabLabel(tab), tint = if (selected) TextInk else TextInk.copy(alpha = 0.62f), modifier = Modifier.size(20.dp).scale(iconScale))
-                                        Text(
-                                            navTabLabel(tab),
-                                            fontSize = 10.sp,
-                                            lineHeight = 12.sp,
-                                            maxLines = 1,
-                                            softWrap = false,
-                                            color = if (selected) TextInk else TextInk.copy(alpha = 0.62f)
-                                        )
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            AsyncImage(
+                                                model = curTrack.artworkUrl,
+                                                contentDescription = curTrack.title,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.size(38.dp).clip(RoundedCornerShape(10.dp))
+                                            )
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(curTrack.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextInk, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                Text(curTrack.artist, fontSize = 11.sp, color = TextInk.copy(alpha = 0.68f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
+                                            Surface(
+                                                color = TextInk,
+                                                shape = CircleShape,
+                                                modifier = Modifier.size(36.dp).clip(CircleShape).clickable { vm.togglePlayPause() }
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Icon(
+                                                        if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                                        contentDescription = "Play/Pause",
+                                                        tint = BgDark,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Surface(
+                                        color = liquidGlassBg,
+                                        shape = RoundedCornerShape(30.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
+                                        modifier = Modifier.weight(1f).height(54.dp).clip(RoundedCornerShape(30.dp)).clickable { isBarCollapsed = false }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(navTabLabel(activeTab), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextInk)
+                                            Icon(Icons.Default.ExpandLess, contentDescription = "Expand", tint = TextInk.copy(alpha = 0.7f))
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                val curTrack = state.currentTrack
+                                if (curTrack != null) {
+                                    Surface(
+                                        color = liquidGlassBg,
+                                        shape = RoundedCornerShape(30.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
+                                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp)).clickable { showFullscreen = true }
+                                    ) {
+                                        Column {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                AsyncImage(
+                                                    model = curTrack.artworkUrl,
+                                                    contentDescription = curTrack.title,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.size(38.dp).clip(RoundedCornerShape(10.dp))
+                                                )
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(curTrack.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextInk, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    Text(curTrack.artist, fontSize = 11.sp, color = TextInk.copy(alpha = 0.68f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                }
+                                                IconButton(onClick = { vm.toggleLike(curTrack) }, modifier = Modifier.size(34.dp)) {
+                                                    Icon(
+                                                        if (curTrack.id in likedIds) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                                        contentDescription = "Like",
+                                                        tint = if (curTrack.id in likedIds) primaryColor else TextInk,
+                                                        modifier = Modifier.size(19.dp)
+                                                    )
+                                                }
+                                                Surface(
+                                                    color = TextInk,
+                                                    shape = CircleShape,
+                                                    modifier = Modifier.size(36.dp).clip(CircleShape).clickable { vm.togglePlayPause() }
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                                            contentDescription = "Play/Pause",
+                                                            tint = BgDark,
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
+                                                }
+                                                IconButton(onClick = { vm.playNext() }, modifier = Modifier.size(34.dp)) {
+                                                    Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = TextInk, modifier = Modifier.size(20.dp))
+                                                }
+                                            }
+                                            MiniPlayerProgress(progressFlow = vm.progress, primaryColor = primaryColor, collapseFraction = 0f)
+                                        }
+                                    }
+                                }
+                                Surface(
+                                    color = liquidGlassBg,
+                                    shape = RoundedCornerShape(32.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
+                                    modifier = Modifier.fillMaxWidth().height(64.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxSize().padding(vertical = 2.dp, horizontal = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceEvenly,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        NavTab.values().forEach { tab ->
+                                            val selected = activeTab == tab
+                                            val iconScale by animateFloatAsState(
+                                                targetValue = if (selected) 1.12f else 1.0f,
+                                                animationSpec = spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMedium),
+                                                label = "navScale"
+                                            )
+                                            val icon = when (tab) {
+                                                NavTab.HOME -> Icons.Default.Home
+                                                NavTab.EXPLORE -> Icons.Default.Explore
+                                                NavTab.LIBRARY -> Icons.Default.LibraryMusic
+                                                NavTab.STATS -> Icons.Default.BarChart
+                                                NavTab.SETTINGS -> Icons.Default.Settings
+                                            }
+                                            Box(
+                                                modifier = Modifier.weight(1f),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Column(
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(18.dp))
+                                                        .background(if (selected) TextInk.copy(alpha = 0.14f) else Color.Transparent)
+                                                        .clickable { activeTab = tab; isBarCollapsed = false }
+                                                        .padding(horizontal = 12.dp, vertical = 5.dp)
+                                                ) {
+                                                    Icon(icon, contentDescription = navTabLabel(tab), tint = if (selected) TextInk else TextInk.copy(alpha = 0.62f), modifier = Modifier.size(20.dp).scale(iconScale))
+                                                    Text(
+                                                        navTabLabel(tab),
+                                                        fontSize = 10.sp,
+                                                        lineHeight = 12.sp,
+                                                        maxLines = 1,
+                                                        softWrap = false,
+                                                        color = if (selected) TextInk else TextInk.copy(alpha = 0.62f)
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1057,7 +1172,7 @@ fun SwaraNativeApp(
                     onToggleShuffle = { vm.toggleShuffle() },
                     onCycleRepeat = { vm.cycleRepeat() },
                     onToggleLike = { vm.toggleLike(cur) },
-                    onDownload = { vm.downloadTrack(cur) },
+                    onDownload = { pendingDownloadTracks = listOf(cur) },
                     onPlayQueueIndex = { idx -> vm.playFromList(state.queue, idx) },
                     onRemoveQueueIndex = { idx -> vm.removeFromQueue(idx) },
                     onCycleSleepTimer = { vm.cycleSleepTimer() },
@@ -1065,6 +1180,7 @@ fun SwaraNativeApp(
                     onOpenMenu = { showSongMenuSheet = true },
                     ambientMode = ambientMode,
                     onToggleAmbient = { ambientMode = !ambientMode },
+                    onToggleRomanizeLyrics = { vm.setRomanizeLyrics(!state.romanizeLyrics) },
                 )
                 }
             }
@@ -1116,7 +1232,7 @@ fun SwaraNativeApp(
                         },
                         sleepRemainingSec = state.sleepTimerRemainingSec,
                         onCycleSleepTimer = { vm.cycleSleepTimer() },
-                        onDownload = { vm.downloadTrack(cur); showSongMenuSheet = false },
+                        onDownload = { pendingDownloadTracks = listOf(cur); showSongMenuSheet = false },
                         onListenTogether = { showSongMenuSheet = false; showListenSheet = true },
                         onToggleAmbient = { ambientMode = !ambientMode; showSongMenuSheet = false },
                         onOpenEq = { showSongMenuSheet = false; showEqSheet = true },
@@ -1138,6 +1254,106 @@ fun SwaraNativeApp(
                     artistImages = state.artistImages,
                     primaryColor = primaryColor,
                     onClose = { showRecapSheet = false },
+                )
+            }
+
+            pendingDownloadTracks?.let { targets ->
+                AlertDialog(
+                    onDismissRequest = { pendingDownloadTracks = null },
+                    containerColor = CardDark,
+                    titleContentColor = TextInk,
+                    textContentColor = TextInk,
+                    title = {
+                        Text(
+                            if (targets.size == 1) "Simpan Lagu di Mana?" else "Simpan ${targets.size} Lagu di Mana?",
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                "Pilih lokasi penyimpanan unduhan:",
+                                fontSize = 13.sp,
+                                color = TextInk.copy(alpha = 0.72f)
+                            )
+                            Surface(
+                                color = Color.White.copy(alpha = 0.08f),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable {
+                                    pendingDownloadTracks = null
+                                    if (targets.size == 1) vm.downloadTrack(targets.first(), "")
+                                    else vm.downloadPlaylist(targets, "")
+                                }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = TextInk)
+                                    Column {
+                                        Text("Penyimpanan Aplikasi (Offline)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextInk)
+                                        Text("Cepat, langsung bisa diputar offline di Swara", fontSize = 11.sp, color = TextInk.copy(alpha = 0.6f))
+                                    }
+                                }
+                            }
+                            if (state.downloadTreeUri.isNotBlank()) {
+                                val folderName = runCatching {
+                                    android.net.Uri.parse(state.downloadTreeUri).lastPathSegment?.substringAfterLast(':') ?: "Folder Terpilih"
+                                }.getOrDefault("Folder Terpilih")
+                                Surface(
+                                    color = Color.White.copy(alpha = 0.08f),
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable {
+                                        pendingDownloadTracks = null
+                                        if (targets.size == 1) vm.downloadTrack(targets.first(), state.downloadTreeUri)
+                                        else vm.downloadPlaylist(targets, state.downloadTreeUri)
+                                    }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Icon(Icons.Default.Folder, contentDescription = null, tint = TextInk)
+                                        Column {
+                                            Text("Folder HP: $folderName", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextInk)
+                                            Text("Simpan ke folder yang sudah dipilih + Offline", fontSize = 11.sp, color = TextInk.copy(alpha = 0.6f))
+                                        }
+                                    }
+                                }
+                            }
+                            Surface(
+                                color = Color.White.copy(alpha = 0.08f),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable {
+                                    downloadFolderLauncher.launch(null)
+                                }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Icon(Icons.Default.CreateNewFolder, contentDescription = null, tint = TextInk)
+                                    Column {
+                                        Text(
+                                            if (state.downloadTreeUri.isNotBlank()) "Pilih Folder Lain di HP" else "Pilih Folder di Penyimpanan HP",
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 14.sp,
+                                            color = TextInk
+                                        )
+                                        Text("Simpan file audio ke folder pilihan Anda", fontSize = 11.sp, color = TextInk.copy(alpha = 0.6f))
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { pendingDownloadTracks = null }) {
+                            Text("Batal", color = TextInk)
+                        }
+                    }
                 )
             }
 
@@ -1256,7 +1472,7 @@ fun SwaraNativeApp(
                         },
                         onToggleLike = { vm.toggleLike(it) },
                         onAddToQueue = { vm.addToQueue(it) },
-                        onDownload = { vm.downloadTrack(it) },
+                        onDownload = { pendingDownloadTracks = listOf(it) },
                         onSaveToPlaylist = { playlistPickerTrack = it },
                     )
                 }
@@ -1329,7 +1545,7 @@ fun SwaraNativeApp(
                         onPlayNextList = { vm.playNextList(it) },
                         onToggleLike = { vm.toggleLike(it) },
                         onAddToQueue = { vm.addToQueue(it) },
-                        onDownload = { vm.downloadTrack(it) },
+                        onDownload = { pendingDownloadTracks = listOf(it) },
                         onSaveToPlaylist = { playlistPickerTrack = it },
                     )
                 }
@@ -1356,7 +1572,7 @@ fun SwaraNativeApp(
                         },
                         onToggleLike = { vm.toggleLike(it) },
                         onAddToQueue = { vm.addToQueue(it) },
-                        onDownload = { vm.downloadTrack(it) },
+                        onDownload = { pendingDownloadTracks = listOf(it) },
                         onSaveToPlaylist = { playlistPickerTrack = it },
                     )
                 }
@@ -1383,7 +1599,7 @@ fun SwaraNativeApp(
                         onToggleLike = onToggleLikeCb,
                         onAddToQueue = onAddToQueueCb,
                         onDownloadTrack = onDownloadCb,
-                        onDownloadAll = { vm.downloadPlaylist(fresh.tracks) },
+                        onDownloadAll = { pendingDownloadTracks = fresh.tracks },
                         onSaveToPlaylist = onSaveToPlaylistCb,
                         onRemoveTrack = { t -> vm.removeTrackFromPlaylist(fresh.id, t.id) },
                         onEditPlaylist = { newName, uri -> vm.updatePlaylist(fresh.id, newName, uri) },
@@ -2329,7 +2545,7 @@ private fun LibraryScreen(
         when (tab) {
             LibTab.ALL -> {
                 LazyColumn(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 164.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     // Playlists (2-column grid or list)
@@ -2420,7 +2636,7 @@ private fun LibraryScreen(
                         }
                     }
                 } else {
-                    LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 164.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         if (isGrid) {
                             items(filteredPlaylists.chunked(2)) { pair ->
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2496,7 +2712,7 @@ private fun LibraryScreen(
                         modifier = Modifier.padding(16.dp)
                     )
                 } else {
-                    LazyColumn {
+                    LazyColumn(contentPadding = PaddingValues(bottom = 164.dp)) {
                         itemsIndexed(activeTracks) { idx, t ->
                             TrackRow(
                                 track = t,
@@ -2516,7 +2732,7 @@ private fun LibraryScreen(
             }
 
             LibTab.ARTISTS -> {
-                LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 164.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (isGrid && filteredArtists.isNotEmpty()) {
                         items(filteredArtists.chunked(2)) { pair ->
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2607,10 +2823,10 @@ private fun CollectionRow(icon: androidx.compose.ui.graphics.vector.ImageVector,
             modifier = Modifier
                 .size(44.dp)
                 .clip(CircleShape)
-                .background(primaryColor.copy(alpha = 0.16f)),
+                .background(Color.White.copy(alpha = 0.08f)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, contentDescription = null, tint = primaryColor, modifier = Modifier.size(21.dp))
+            Icon(icon, contentDescription = null, tint = TextInk, modifier = Modifier.size(21.dp))
         }
         Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -2721,7 +2937,7 @@ private fun StatsScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 164.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item { Text(S.statsTitle, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = TextInk) }
@@ -2737,10 +2953,10 @@ private fun StatsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
-                    modifier = Modifier.size(44.dp).clip(CircleShape).background(primaryColor.copy(alpha = 0.16f)),
+                    modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.08f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.TrendingUp, contentDescription = null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                    Icon(Icons.Default.TrendingUp, contentDescription = null, tint = TextInk, modifier = Modifier.size(22.dp))
                 }
                 Spacer(Modifier.width(14.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -2764,10 +2980,10 @@ private fun StatsScreen(
                             modifier = Modifier
                                 .size(64.dp)
                                 .clip(RoundedCornerShape(18.dp))
-                                .background(primaryColor.copy(alpha = 0.16f)),
+                                .background(Color(0xFFFF6D00).copy(alpha = 0.16f)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Default.LocalFireDepartment, contentDescription = null, tint = primaryColor, modifier = Modifier.size(38.dp))
+                            Icon(Icons.Default.LocalFireDepartment, contentDescription = null, tint = Color(0xFFFF6D00), modifier = Modifier.size(38.dp))
                         }
                         Column {
                             Text("$streakDays", fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, color = TextInk)
@@ -2807,10 +3023,10 @@ private fun StatsScreen(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(primaryColor.copy(alpha = 0.16f)),
+                        .background(Color.White.copy(alpha = 0.08f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Group, contentDescription = null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                    Icon(Icons.Default.Group, contentDescription = null, tint = TextInk, modifier = Modifier.size(22.dp))
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Top artists with friends", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextInk)
@@ -3316,25 +3532,34 @@ private fun RecapFullScreenOverlay(
                         Spacer(Modifier.height(18.dp))
                         Text("That's your Recap", fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, fontFamily = FontFamily.Serif)
                         Text("Thanks for listening with Swara.", fontSize = 14.sp, color = Color.White.copy(alpha = 0.78f))
-                        Spacer(Modifier.height(26.dp))
-                        Surface(
-                            color = Color.White,
-                            shape = RoundedCornerShape(50),
-                            modifier = Modifier.clip(RoundedCornerShape(50)).clickable {
-                                shareRecapStoryCard(
-                                    context = ctx,
-                                    totalMinutes = totalMinutes,
-                                    topArtists = topArtists,
-                                    topTracks = rankedSongs.map { it.first },
-                                    accentColor = primaryColor,
-                                )
-                            }
-                        ) {
-                            Row(modifier = Modifier.padding(horizontal = 24.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF0D1524), modifier = Modifier.size(18.dp))
-                                Text("Share your Recap", color = Color(0xFF0D1524), fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            }
-                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Surface(
+                    color = Color.White,
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier.clip(RoundedCornerShape(50)).clickable {
+                        shareRecapStoryCard(
+                            context = ctx,
+                            slideIndex = slide,
+                            totalMinutes = totalMinutes,
+                            songCount = recentTracks.size,
+                            topArtists = topArtists,
+                            topTracks = rankedSongs.map { it.first },
+                            accentColor = primaryColor,
+                        )
+                    }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF0D1524), modifier = Modifier.size(18.dp))
+                        Text("Share Story", color = Color(0xFF0D1524), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
             }
@@ -3344,7 +3569,9 @@ private fun RecapFullScreenOverlay(
 
 private fun shareRecapStoryCard(
     context: android.content.Context,
+    slideIndex: Int,
     totalMinutes: Int,
+    songCount: Int,
     topArtists: List<Pair<String, Int>>,
     topTracks: List<Track>,
     accentColor: Color,
@@ -3386,16 +3613,10 @@ private fun shareRecapStoryCard(
 
     c.drawText("SWARA RECAP", 88f, 190f, labelPaint)
     c.drawText("Your Recap 2026", 88f, 305f, serifTitlePaint)
-    c.drawText("$totalMinutes", 88f, 455f, bigNumPaint)
-    c.drawText("minutes listened  \u2022  ${topTracks.size} songs", 88f, 520f, subPaint)
 
-    // Translucent frosted glass panel (matching reference screenshot)
     val glassPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
         color = android.graphics.Color.argb(46, 255, 255, 255)
     }
-    val panelRect = android.graphics.RectF(72f, 585f, w - 72f, 1690f)
-    c.drawRoundRect(panelRect, 48f, 48f, glassPaint)
-
     val secHeadPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
         color = android.graphics.Color.WHITE
         textSize = 42f
@@ -3416,20 +3637,67 @@ private fun shareRecapStoryCard(
         textSize = 28f
     }
 
-    c.drawText("Top songs", 118f, 665f, secHeadPaint)
-    topTracks.take(5).forEachIndexed { idx, t ->
-        val y = 745f + idx * 105f
-        c.drawText("${idx + 1}", 120f, y, rankPaint)
-        c.drawText(t.title.take(30), 178f, y - 8f, itemTitlePaint)
-        c.drawText(t.artist.take(36), 178f, y + 30f, itemSubPaint)
-    }
-
-    c.drawText("Top artists", 118f, 1295f, secHeadPaint)
-    topArtists.take(5).forEachIndexed { idx, (name, count) ->
-        val y = 1370f + idx * 62f
-        c.drawText("${idx + 1}", 120f, y, rankPaint)
-        c.drawText(name.take(28), 178f, y, itemTitlePaint)
-        c.drawText("$count plays", w - 260f, y, itemSubPaint)
+    when (slideIndex) {
+        0 -> {
+            c.drawText("You listened for", 88f, 520f, subPaint)
+            c.drawText("$totalMinutes", 88f, 700f, bigNumPaint)
+            c.drawText("minutes", 88f, 780f, serifTitlePaint)
+            c.drawText("$songCount songs  \u2022  ${topArtists.size} artists", 88f, 880f, subPaint)
+        }
+        1 -> {
+            val t = topTracks.firstOrNull()
+            c.drawText("Your #1 Top Song", 88f, 440f, subPaint)
+            c.drawRoundRect(android.graphics.RectF(72f, 540f, w - 72f, 1120f), 48f, 48f, glassPaint)
+            c.drawText((t?.title ?: "Swara").take(26), 118f, 760f, serifTitlePaint)
+            c.drawText((t?.artist ?: "").take(36), 118f, 840f, secHeadPaint)
+        }
+        2 -> {
+            val a = topArtists.firstOrNull()
+            c.drawText("Your #1 Top Artist", 88f, 440f, subPaint)
+            c.drawRoundRect(android.graphics.RectF(72f, 540f, w - 72f, 1120f), 48f, 48f, glassPaint)
+            c.drawText((a?.first ?: "Swara").take(24), 118f, 760f, serifTitlePaint)
+            if (a != null) c.drawText("${a.second} plays", 118f, 840f, secHeadPaint)
+        }
+        3 -> {
+            c.drawText("Your Top 5 Songs", 88f, 440f, subPaint)
+            c.drawRoundRect(android.graphics.RectF(72f, 540f, w - 72f, 1340f), 48f, 48f, glassPaint)
+            topTracks.take(5).forEachIndexed { idx, t ->
+                val y = 660f + idx * 125f
+                c.drawText("${idx + 1}", 120f, y, rankPaint)
+                c.drawText(t.title.take(30), 178f, y - 8f, itemTitlePaint)
+                c.drawText(t.artist.take(36), 178f, y + 32f, itemSubPaint)
+            }
+        }
+        4 -> {
+            c.drawText("Your Top 5 Artists", 88f, 440f, subPaint)
+            c.drawRoundRect(android.graphics.RectF(72f, 540f, w - 72f, 1260f), 48f, 48f, glassPaint)
+            topArtists.take(5).forEachIndexed { idx, (name, count) ->
+                val y = 660f + idx * 110f
+                c.drawText("${idx + 1}", 120f, y, rankPaint)
+                c.drawText(name.take(28), 178f, y, itemTitlePaint)
+                c.drawText("$count plays", w - 260f, y, itemSubPaint)
+            }
+        }
+        else -> {
+            c.drawText("$totalMinutes", 88f, 455f, bigNumPaint)
+            c.drawText("minutes listened  \u2022  ${topTracks.size} songs", 88f, 520f, subPaint)
+            val panelRect = android.graphics.RectF(72f, 585f, w - 72f, 1690f)
+            c.drawRoundRect(panelRect, 48f, 48f, glassPaint)
+            c.drawText("Top songs", 118f, 665f, secHeadPaint)
+            topTracks.take(5).forEachIndexed { idx, t ->
+                val y = 745f + idx * 105f
+                c.drawText("${idx + 1}", 120f, y, rankPaint)
+                c.drawText(t.title.take(30), 178f, y - 8f, itemTitlePaint)
+                c.drawText(t.artist.take(36), 178f, y + 30f, itemSubPaint)
+            }
+            c.drawText("Top artists", 118f, 1295f, secHeadPaint)
+            topArtists.take(5).forEachIndexed { idx, (name, count) ->
+                val y = 1370f + idx * 62f
+                c.drawText("${idx + 1}", 120f, y, rankPaint)
+                c.drawText(name.take(28), 178f, y, itemTitlePaint)
+                c.drawText("$count plays", w - 260f, y, itemSubPaint)
+            }
+        }
     }
 
     c.drawText("Swara", 88f, 1800f, secHeadPaint)
@@ -5211,6 +5479,7 @@ private fun FullscreenPlayerOverlay(
     onOpenMenu: () -> Unit,
     ambientMode: Boolean,
     onToggleAmbient: () -> Unit,
+    onToggleRomanizeLyrics: () -> Unit,
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var isVinylMode by remember { mutableStateOf(false) }
@@ -5264,6 +5533,25 @@ private fun FullscreenPlayerOverlay(
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        color = if (romanizeLyrics) Color.White.copy(alpha = 0.24f) else glassBg,
+                        shape = CircleShape,
+                        border = if (romanizeLyrics) {
+                            androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.72f))
+                        } else {
+                            androidx.compose.foundation.BorderStroke(1.dp, glassBorder)
+                        },
+                        modifier = Modifier.size(42.dp).clip(CircleShape).clickable(onClick = onToggleRomanizeLyrics)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.Translate,
+                                contentDescription = "Romanize Lyrics",
+                                tint = Color.White,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+                    }
                     Surface(
                         color = glassBg,
                         shape = CircleShape,

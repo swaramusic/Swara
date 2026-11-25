@@ -43,6 +43,10 @@ data class SwaraUiState(
     val downloadedTracks: List<Track> = emptyList(),
     val localTracks: List<Track> = emptyList(),
     val downloadingIds: Set<String> = emptySet(),
+    val downloadDone: Int = 0,
+    val downloadTotal: Int = 0,
+    val downloadCurrentTitle: String = "",
+    val downloadTreeUri: String = "",
     val playlists: List<UserPlaylist> = emptyList(),
     val followedArtists: List<String> = emptyList(),
     val openedArtistName: String? = null,
@@ -169,6 +173,7 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
                 SwaraPlaybackService.maxSongCacheMb = it
             },
             romanizeLyrics = prefs.getBoolean("romanize_lyrics", false),
+            downloadTreeUri = prefs.getString("download_tree_uri", "") ?: "",
         )
     )
     val ui: StateFlow<SwaraUiState> = _ui.asStateFlow()
@@ -1126,17 +1131,94 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun downloadPlaylist(tracks: List<Track>) {
+    fun setDownloadTreeUri(uriStr: String) {
+        prefs.edit().putString("download_tree_uri", uriStr).apply()
+        _ui.update { it.copy(downloadTreeUri = uriStr) }
+    }
+
+    private fun copyToUserFolder(track: Track, src: java.io.File, treeUriStr: String) {
+        if (treeUriStr.isBlank()) return
+        runCatching {
+            val ctx = getApplication<Application>()
+            val treeUri = android.net.Uri.parse(treeUriStr)
+            val docId = android.provider.DocumentsContract.getTreeDocumentId(treeUri)
+            val parentDocUri = android.provider.DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+            val safeName = "${track.title} - ${track.artist}".replace(Regex("[\\\\/:*?\"<>|]"), "_").take(90) + ".m4a"
+            val created = android.provider.DocumentsContract.createDocument(
+                ctx.contentResolver,
+                parentDocUri,
+                "audio/mp4",
+                safeName
+            ) ?: return
+            ctx.contentResolver.openOutputStream(created)?.use { out ->
+                src.inputStream().use { inp -> inp.copyTo(out) }
+            }
+        }
+    }
+
+    private fun notifyDownloadProgress(done: Int, total: Int, title: String, finished: Boolean = false) {
+        runCatching {
+            val ctx = getApplication<Application>()
+            val nm = ctx.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            val chId = "swara_downloads"
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                if (nm.getNotificationChannel(chId) == null) {
+                    nm.createNotificationChannel(
+                        android.app.NotificationChannel(
+                            chId,
+                            "Unduhan Lagu",
+                            android.app.NotificationManager.IMPORTANCE_LOW
+                        )
+                    )
+                }
+            }
+            val builder = androidx.core.app.NotificationCompat.Builder(ctx, chId)
+                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setOnlyAlertOnce(true)
+                .setOngoing(!finished)
+                .setAutoCancel(finished)
+            if (finished) {
+                builder.setSmallIcon(android.R.drawable.stat_sys_download_done)
+                    .setContentTitle("Unduhan selesai")
+                    .setContentText("$done / $total lagu tersimpan")
+                    .setProgress(0, 0, false)
+            } else {
+                builder.setContentTitle("Mengunduh $done / $total lagu")
+                    .setContentText(title)
+                    .setProgress(total.coerceAtLeast(1), done.coerceIn(0, total), false)
+            }
+            nm.notify(4201, builder.build())
+        }
+    }
+
+    fun downloadPlaylist(tracks: List<Track>, treeUriOverride: String? = null) {
         val targets = tracks.filter { t ->
             t.browseId.isBlank() &&
                 t.id !in _ui.value.downloadingIds &&
                 _ui.value.downloadedTracks.none { it.id == t.id }
         }
         if (targets.isEmpty()) return
+        val folderUri = treeUriOverride ?: _ui.value.downloadTreeUri
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val totalCount = targets.size
+            var doneCount = 0
+            _ui.update {
+                it.copy(
+                    downloadDone = 0,
+                    downloadTotal = totalCount,
+                    downloadCurrentTitle = targets.firstOrNull()?.title.orEmpty()
+                )
+            }
+            notifyDownloadProgress(0, totalCount, targets.firstOrNull()?.title.orEmpty(), finished = false)
             targets.forEach { track ->
                 val dest = safeDownloadFile(track.id) ?: return@forEach
-                _ui.update { it.copy(downloadingIds = it.downloadingIds + track.id) }
+                _ui.update {
+                    it.copy(
+                        downloadingIds = it.downloadingIds + track.id,
+                        downloadCurrentTitle = track.title
+                    )
+                }
+                notifyDownloadProgress(doneCount, totalCount, track.title, finished = false)
                 try {
                     val url = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality).getOrThrow()
                     if (!url.startsWith("https://", ignoreCase = true)) throw IllegalArgumentException("Invalid URL")
@@ -1160,23 +1242,49 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
                             }
                         }
                     }
+                    copyToUserFolder(track, dest, folderUri)
+                    doneCount++
                     val updated = listOf(track) + _ui.value.downloadedTracks.filterNot { it.id == track.id }
-                    _ui.update { it.copy(downloadedTracks = updated, downloadingIds = it.downloadingIds - track.id) }
+                    _ui.update {
+                        it.copy(
+                            downloadedTracks = updated,
+                            downloadingIds = it.downloadingIds - track.id,
+                            downloadDone = doneCount
+                        )
+                    }
                     saveTrackList("downloads", updated)
                 } catch (_: Exception) {
                     runCatching { dest.delete() }
-                    _ui.update { it.copy(downloadingIds = it.downloadingIds - track.id) }
+                    doneCount++
+                    _ui.update {
+                        it.copy(
+                            downloadingIds = it.downloadingIds - track.id,
+                            downloadDone = doneCount
+                        )
+                    }
                 }
+                notifyDownloadProgress(doneCount, totalCount, track.title, finished = false)
             }
+            notifyDownloadProgress(doneCount, totalCount, "", finished = true)
+            _ui.update { it.copy(downloadDone = 0, downloadTotal = 0, downloadCurrentTitle = "") }
         }
     }
 
-    fun downloadTrack(track: Track) {
+    fun downloadTrack(track: Track, treeUriOverride: String? = null) {
         if (track.browseId.isNotBlank() || track.id in _ui.value.downloadingIds) return
         if (_ui.value.downloadedTracks.any { it.id == track.id }) return
         val dest = safeDownloadFile(track.id) ?: return
+        val folderUri = treeUriOverride ?: _ui.value.downloadTreeUri
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            _ui.update { it.copy(downloadingIds = it.downloadingIds + track.id) }
+            _ui.update {
+                it.copy(
+                    downloadingIds = it.downloadingIds + track.id,
+                    downloadDone = 0,
+                    downloadTotal = 1,
+                    downloadCurrentTitle = track.title
+                )
+            }
+            notifyDownloadProgress(0, 1, track.title, finished = false)
             try {
                 val url = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality).getOrThrow()
                 if (!url.startsWith("https://", ignoreCase = true)) {
@@ -1202,9 +1310,17 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }
                 }
+                copyToUserFolder(track, dest, folderUri)
                 val updated = listOf(track) + _ui.value.downloadedTracks.filterNot { it.id == track.id }
-                _ui.update { it.copy(downloadedTracks = updated, downloadingIds = it.downloadingIds - track.id) }
+                _ui.update {
+                    it.copy(
+                        downloadedTracks = updated,
+                        downloadingIds = it.downloadingIds - track.id,
+                        downloadDone = 1
+                    )
+                }
                 saveTrackList("downloads", updated)
+                notifyDownloadProgress(1, 1, track.title, finished = true)
             } catch (e: Exception) {
                 runCatching { dest.delete() }
                 _ui.update {
@@ -1213,6 +1329,8 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
                         errorMessage = "Gagal unduh: ${e.message ?: "Error"}"
                     )
                 }
+            } finally {
+                _ui.update { it.copy(downloadDone = 0, downloadTotal = 0, downloadCurrentTitle = "") }
             }
         }
     }
