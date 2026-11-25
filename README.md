@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/logo.svg" width="88" height="88" alt="Swara Logo" />
+<img src="docs/logo.png" width="88" height="88" alt="Swara Logo" />
 
 # Swara
 

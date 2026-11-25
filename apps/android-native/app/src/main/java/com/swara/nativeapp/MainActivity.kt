@@ -1651,7 +1651,7 @@ private fun HomeScreen(
             } else {
                 item(key = "get_back_header") {
                     Text(
-                        S.resume,
+                        if (recent.isNotEmpty()) S.resume else S.quickPlay,
                         fontSize = 19.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextInk,
