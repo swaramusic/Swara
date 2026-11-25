@@ -100,10 +100,12 @@ data class SwaraUiState(
     val listenRoomCode: String? = null,
     val listenIsHost: Boolean = false,
     val listenStatus: String? = null,
+    val listenPeerCount: Int = 0,
     val identifyResults: List<Track> = emptyList(),
     val isIdentifying: Boolean = false,
     val songCacheEnabled: Boolean = true,
     val maxSongCacheMb: Int = 1126,
+    val romanizeLyrics: Boolean = false,
     val errorMessage: String? = null,
 )
 
@@ -116,6 +118,12 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
         .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .callTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+    private val sseClient = okhttp3.OkHttpClient.Builder()
+        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
+        .callTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .build()
 
     private val _ui = MutableStateFlow(
@@ -154,8 +162,13 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
             discordUsername = prefs.getString("discord_username", "") ?: "",
             discordShowButtons = prefs.getBoolean("discord_show_buttons", true),
             discordTemplate = prefs.getString("discord_template", "app") ?: "app",
-            songCacheEnabled = prefs.getBoolean("song_cache_enabled", true),
-            maxSongCacheMb = prefs.getInt("max_song_cache_mb", 1126),
+            songCacheEnabled = prefs.getBoolean("song_cache_enabled", true).also {
+                SwaraPlaybackService.songCacheEnabled = it
+            },
+            maxSongCacheMb = prefs.getInt("max_song_cache_mb", 1126).also {
+                SwaraPlaybackService.maxSongCacheMb = it
+            },
+            romanizeLyrics = prefs.getBoolean("romanize_lyrics", false),
         )
     )
     val ui: StateFlow<SwaraUiState> = _ui.asStateFlow()
@@ -611,6 +624,20 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun playNextList(tracks: List<Track>) {
+        val mc = controller ?: return
+        val playable = tracks.filter { it.browseId.isBlank() }
+        if (playable.isEmpty()) return
+        if (mc.mediaItemCount == 0) {
+            playFromList(playable, 0)
+            return
+        }
+        val insertIdx = (mc.currentMediaItemIndex + 1).coerceIn(0, mc.mediaItemCount)
+        playable.reversed().forEach { t ->
+            mc.addMediaItem(insertIdx, t.toMediaItem())
+        }
+    }
+
     fun addToQueue(track: Track) {
         val mc = controller ?: return
         if (mc.mediaItemCount == 0) {
@@ -865,58 +892,121 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
             repeat(10) { append(alphabet[rng.nextInt(alphabet.length)]) }
         }
         listenJob?.cancel()
-        _ui.update { it.copy(listenRoomCode = code, listenIsHost = true, listenStatus = "Host aktif • Kode: $code") }
+        _ui.update { it.copy(listenRoomCode = code, listenIsHost = true, listenPeerCount = 0, listenStatus = "Host aktif • Kode: $code • 0 bergabung") }
         val mc = controller
         broadcastRoomState(_ui.value.currentTrack, mc?.currentPosition ?: 0L, mc?.isPlaying ?: false)
+        listenJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val peers = java.util.concurrent.ConcurrentHashMap<String, Long>()
+            while (kotlinx.coroutines.currentCoroutineContext()[Job]?.isActive == true) {
+                runCatching {
+                    val req = okhttp3.Request.Builder().url("https://ntfy.sh/swara-room-$code/sse").build()
+                    sseClient.newCall(req).execute().use { res ->
+                        val reader = res.body?.byteStream()?.bufferedReader() ?: return@use
+                        while (true) {
+                            val line = reader.readLine() ?: break
+                            if (!line.startsWith("data:")) continue
+                            val raw = line.removePrefix("data:").trim()
+                            val outer = runCatching { org.json.JSONObject(raw) }.getOrNull() ?: continue
+                            val msg = outer.optString("message")
+                            if (!msg.startsWith("{")) continue
+                            val obj = runCatching { org.json.JSONObject(msg) }.getOrNull() ?: continue
+                            val ev = obj.optString("ev")
+                            val peer = obj.optString("peer")
+                            if ((ev == "join" || ev == "ping") && peer.isNotBlank()) {
+                                val now = System.currentTimeMillis()
+                                peers[peer] = now
+                                peers.entries.removeIf { now - it.value > 50_000L }
+                                val cnt = peers.size
+                                _ui.update { it.copy(listenPeerCount = cnt, listenStatus = "Host aktif • Kode: $code • $cnt bergabung") }
+                                if (ev == "join") {
+                                    val cur = _ui.value.currentTrack
+                                    broadcastRoomState(cur, _progress.value.first, _ui.value.isPlaying)
+                                }
+                            } else if (ev == "leave" && peer.isNotBlank()) {
+                                peers.remove(peer)
+                                val cnt = peers.size
+                                _ui.update { it.copy(listenPeerCount = cnt, listenStatus = "Host aktif • Kode: $code • $cnt bergabung") }
+                            }
+                        }
+                    }
+                }
+                kotlinx.coroutines.delay(1500L)
+            }
+        }
     }
 
     fun joinListenRoom(rawCode: String) {
         val code = rawCode.trim().uppercase()
         if (!safeRoomRegex.matches(code)) return
         listenJob?.cancel()
-        _ui.update { it.copy(listenRoomCode = code, listenIsHost = false, listenStatus = "Menghubungkan ke ruang $code...") }
+        val peerId = "p_${System.currentTimeMillis()}_${(100..999).random()}"
+        _ui.update { it.copy(listenRoomCode = code, listenIsHost = false, listenPeerCount = 0, listenStatus = "Menghubungkan ke ruang $code...") }
         listenJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val heartbeat = launch {
+                sendPeerEvent(code, "join", peerId)
+                while (true) {
+                    kotlinx.coroutines.delay(20_000L)
+                    sendPeerEvent(code, "ping", peerId)
+                }
+            }
             try {
-                val req = okhttp3.Request.Builder().url("https://ntfy.sh/swara-room-$code/sse").build()
-                dlClient.newCall(req).execute().use { res ->
-                    val reader = res.body?.byteStream()?.bufferedReader() ?: return@use
-                    _ui.update { it.copy(listenStatus = "Terhubung ke ruang $code") }
-                    while (true) {
-                        val line = reader.readLine() ?: break
-                        if (!line.startsWith("data:")) continue
-                        val raw = line.removePrefix("data:").trim()
-                        val outer = runCatching { org.json.JSONObject(raw) }.getOrNull() ?: continue
-                        val msg = outer.optString("message")
-                        if (!msg.startsWith("{")) continue
-                        val stateObj = runCatching { org.json.JSONObject(msg) }.getOrNull() ?: continue
-                        val vid = stateObj.optString("id")
-                        if (!safeIdRegex.matches(vid)) continue
-                        val title = stateObj.optString("t").take(200)
-                        val artist = stateObj.optString("a").take(200)
-                        val img = sanitizeRemoteArtworkUrl(stateObj.optString("img"))
-                        val pos = stateObj.optLong("pos", 0L).coerceAtLeast(0L)
-                        val playing = stateObj.optBoolean("play", true)
-                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                            val mc = controller
-                            if (_ui.value.currentTrack?.id != vid) {
-                                playFromList(listOf(Track(vid, title, artist, img)), 0)
-                            } else if (mc != null) {
-                                if (kotlin.math.abs(mc.currentPosition - pos) > 3500) mc.seekTo(pos)
-                                if (playing && !mc.isPlaying) mc.play()
-                                else if (!playing && mc.isPlaying) mc.pause()
+                while (kotlinx.coroutines.currentCoroutineContext()[Job]?.isActive == true) {
+                    try {
+                        val req = okhttp3.Request.Builder().url("https://ntfy.sh/swara-room-$code/sse").build()
+                        sseClient.newCall(req).execute().use { res ->
+                            val reader = res.body?.byteStream()?.bufferedReader() ?: return@use
+                            _ui.update { it.copy(listenStatus = "Terhubung ke ruang $code") }
+                            while (true) {
+                                val line = reader.readLine() ?: break
+                                if (!line.startsWith("data:")) continue
+                                val raw = line.removePrefix("data:").trim()
+                                val outer = runCatching { org.json.JSONObject(raw) }.getOrNull() ?: continue
+                                val msg = outer.optString("message")
+                                if (!msg.startsWith("{")) continue
+                                val stateObj = runCatching { org.json.JSONObject(msg) }.getOrNull() ?: continue
+                                val vid = stateObj.optString("id")
+                                if (!safeIdRegex.matches(vid)) continue
+                                val title = stateObj.optString("t").take(200)
+                                val artist = stateObj.optString("a").take(200)
+                                val img = sanitizeRemoteArtworkUrl(stateObj.optString("img"))
+                                val pos = stateObj.optLong("pos", 0L).coerceAtLeast(0L)
+                                val playing = stateObj.optBoolean("play", true)
+                                viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                                    val mc = controller
+                                    if (_ui.value.currentTrack?.id != vid) {
+                                        playFromList(listOf(Track(vid, title, artist, img)), 0)
+                                    } else if (mc != null) {
+                                        if (kotlin.math.abs(mc.currentPosition - pos) > 3500) mc.seekTo(pos)
+                                        if (playing && !mc.isPlaying) mc.play()
+                                        else if (!playing && mc.isPlaying) mc.pause()
+                                    }
+                                }
                             }
                         }
+                    } catch (_: Exception) {
+                        _ui.update { it.copy(listenStatus = "Menyambung ulang ke $code...") }
                     }
+                    kotlinx.coroutines.delay(1500L)
                 }
-            } catch (e: Exception) {
-                _ui.update { it.copy(listenStatus = "Terputus: ${e.message ?: "Error"}") }
+            } finally {
+                heartbeat.cancel()
+                sendPeerEvent(code, "leave", peerId)
             }
         }
     }
 
+    private fun sendPeerEvent(code: String, ev: String, peerId: String) {
+        val payload = org.json.JSONObject().put("ev", ev).put("peer", peerId).toString()
+        val req = okhttp3.Request.Builder()
+            .url("https://ntfy.sh/swara-room-$code")
+            .post(okhttp3.RequestBody.create(null, payload))
+            .build()
+        runCatching { dlClient.newCall(req).execute().close() }
+    }
+
     fun leaveListenRoom() {
         listenJob?.cancel()
-        _ui.update { it.copy(listenRoomCode = null, listenIsHost = false, listenStatus = null) }
+        _ui.update { it.copy(listenRoomCode = null, listenIsHost = false, listenPeerCount = 0, listenStatus = null) }
     }
 
     private fun broadcastRoomState(track: Track?, posMs: Long, playing: Boolean) {
@@ -1149,13 +1239,22 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setSongCacheEnabled(enabled: Boolean) {
         prefs.edit().putBoolean("song_cache_enabled", enabled).apply()
+        SwaraPlaybackService.songCacheEnabled = enabled
+        if (!enabled) clearSongCache()
         _ui.update { it.copy(songCacheEnabled = enabled) }
     }
 
     fun setMaxSongCacheMb(mb: Int) {
         val clamped = mb.coerceIn(128, 2048)
         prefs.edit().putInt("max_song_cache_mb", clamped).apply()
+        SwaraPlaybackService.maxSongCacheMb = clamped
+        SwaraPlaybackService.enforceSongCacheLimit(getApplication())
         _ui.update { it.copy(maxSongCacheMb = clamped) }
+    }
+
+    fun setRomanizeLyrics(enabled: Boolean) {
+        prefs.edit().putBoolean("romanize_lyrics", enabled).apply()
+        _ui.update { it.copy(romanizeLyrics = enabled) }
     }
 
     fun clearSongCache() {

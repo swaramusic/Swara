@@ -819,6 +819,7 @@ fun SwaraNativeApp(
                             discordRpcEnabled = state.discordRpcEnabled,
                             listenRoomCode = state.listenRoomCode,
                             listenStatus = state.listenStatus,
+                            romanizeLyrics = state.romanizeLyrics,
                             sleepRemainingSec = state.sleepTimerRemainingSec,
                             currentTrack = state.currentTrack,
                             primaryColor = primaryColor,
@@ -829,6 +830,7 @@ fun SwaraNativeApp(
                             onSelectCountry = { vm.setCountry(it) },
                             onSelectLanguage = { vm.setLanguage(it) },
                             onToggleDynamicIsland = { vm.setDynamicIslandEnabled(it) },
+                            onToggleRomanizeLyrics = { vm.setRomanizeLyrics(it) },
                             onOpenDiscord = { showDiscordSheet = true },
                             onOpenListenTogether = { showListenSheet = true },
                             onCycleSleepTimer = { vm.cycleSleepTimer() },
@@ -997,19 +999,20 @@ fun SwaraNativeApp(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier
                                             .weight(1f)
+                                            .padding(horizontal = 4.dp, vertical = 4.dp)
                                             .clip(RoundedCornerShape(22.dp))
                                             .background(if (selected) TextInk.copy(alpha = 0.14f) else Color.Transparent)
                                             .clickable { activeTab = tab; isBarCollapsed = false }
                                             .padding(horizontal = 2.dp, vertical = 4.dp)
                                     ) {
-                                        Icon(icon, contentDescription = navTabLabel(tab), tint = if (selected) primaryColor else TextInk.copy(alpha = 0.65f), modifier = Modifier.size(20.dp).scale(iconScale))
+                                        Icon(icon, contentDescription = navTabLabel(tab), tint = if (selected) TextInk else TextInk.copy(alpha = 0.62f), modifier = Modifier.size(20.dp).scale(iconScale))
                                         Text(
                                             navTabLabel(tab),
                                             fontSize = 10.sp,
                                             lineHeight = 12.sp,
                                             maxLines = 1,
                                             softWrap = false,
-                                            color = if (selected) TextInk else TextInk.copy(alpha = 0.65f)
+                                            color = if (selected) TextInk else TextInk.copy(alpha = 0.62f)
                                         )
                                     }
                                 }
@@ -1040,6 +1043,7 @@ fun SwaraNativeApp(
                     onSelectTab = { playerTab = it },
                     lyrics = state.lyrics,
                     isLoadingLyrics = state.isLoadingLyrics,
+                    romanizeLyrics = state.romanizeLyrics,
                     queue = state.queue,
                     currentIndex = state.currentIndex,
                     sleepRemainingSec = state.sleepTimerRemainingSec,
@@ -1322,6 +1326,7 @@ fun SwaraNativeApp(
                                 vm.closeArtist()
                             }
                         },
+                        onPlayNextList = { vm.playNextList(it) },
                         onToggleLike = { vm.toggleLike(it) },
                         onAddToQueue = { vm.addToQueue(it) },
                         onDownload = { vm.downloadTrack(it) },
@@ -1374,6 +1379,7 @@ fun SwaraNativeApp(
                         onClose = { openedUserPlaylist = null },
                         onPlay = { list, idx -> vm.playFromList(list, idx) },
                         onShufflePlay = { list -> if (list.isNotEmpty()) vm.playFromList(list.shuffled(), 0) },
+                        onPlayNextList = { list -> vm.playNextList(list) },
                         onToggleLike = onToggleLikeCb,
                         onAddToQueue = onAddToQueueCb,
                         onDownloadTrack = onDownloadCb,
@@ -1527,6 +1533,7 @@ fun SwaraNativeApp(
                     ListenTogetherSheetContent(
                         roomCode = state.listenRoomCode,
                         isHost = state.listenIsHost,
+                        peerCount = state.listenPeerCount,
                         status = state.listenStatus,
                         primaryColor = primaryColor,
                         onCreateRoom = { vm.createListenRoom() },
@@ -3450,6 +3457,7 @@ private fun SettingsScreen(
     discordRpcEnabled: Boolean,
     listenRoomCode: String?,
     listenStatus: String?,
+    romanizeLyrics: Boolean,
     sleepRemainingSec: Int,
     currentTrack: Track?,
     primaryColor: Color,
@@ -3460,6 +3468,7 @@ private fun SettingsScreen(
     onSelectCountry: (String) -> Unit,
     onSelectLanguage: (String) -> Unit,
     onToggleDynamicIsland: (Boolean) -> Unit,
+    onToggleRomanizeLyrics: (Boolean) -> Unit,
     onOpenDiscord: () -> Unit,
     onOpenListenTogether: () -> Unit,
     onCycleSleepTimer: () -> Unit,
@@ -3605,6 +3614,19 @@ private fun SettingsScreen(
                     SettingsFlatRow(Icons.Default.GraphicEq, S.eqBtn, primaryColor, onClick = onOpenEq)
                     val sleepLabel = if (sleepRemainingSec > 0) "Sleep Timer: ${formatMs(sleepRemainingSec * 1000L)}" else S.sleepTimerOff
                     SettingsFlatRow(Icons.Default.Bedtime, sleepLabel, primaryColor, onClick = onCycleSleepTimer)
+                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Translate, contentDescription = null, tint = TextInk, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Romanize Lyrics", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextInk)
+                            Text("Romaji & Hangul below lyrics", fontSize = 12.sp, color = TextInk.copy(alpha = 0.6f))
+                        }
+                        Switch(
+                            checked = romanizeLyrics,
+                            onCheckedChange = onToggleRomanizeLyrics,
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = primaryColor)
+                        )
+                    }
                 }
             }
         }
@@ -3854,6 +3876,7 @@ private fun UserPlaylistOverlay(
     onClose: () -> Unit,
     onPlay: (List<Track>, Int) -> Unit,
     onShufflePlay: (List<Track>) -> Unit,
+    onPlayNextList: (List<Track>) -> Unit,
     onToggleLike: (Track) -> Unit,
     onAddToQueue: (Track) -> Unit,
     onDownloadTrack: (Track) -> Unit,
@@ -3866,6 +3889,7 @@ private fun UserPlaylistOverlay(
     var searchQuery by remember { mutableStateOf("") }
     var sortMode by remember { mutableStateOf("default") }
     var showMenuSheet by remember { mutableStateOf(false) }
+    var showSortSheet by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
     var editName by remember(playlist.id, playlist.name) { mutableStateOf(playlist.name) }
     var pickedCoverUri by remember(playlist.id) { mutableStateOf<Uri?>(null) }
@@ -3876,6 +3900,8 @@ private fun UserPlaylistOverlay(
 
     val displayedTracks = remember(playlist.tracks, searchQuery, sortMode) {
         val base = when (sortMode) {
+            "newest" -> playlist.tracks.reversed()
+            "oldest" -> playlist.tracks
             "title" -> playlist.tracks.sortedBy { it.title.lowercase() }
             "artist" -> playlist.tracks.sortedBy { it.artist.lowercase() }
             else -> playlist.tracks
@@ -4061,32 +4087,75 @@ private fun UserPlaylistOverlay(
                     }
                 }
                 HorizontalDivider(color = TextInk.copy(alpha = 0.08f))
-                SettingsFlatRow(Icons.Default.Shuffle, "Shuffle play", TextInk) {
-                    showMenuSheet = false; onShufflePlay(displayedTracks)
+                PlaylistMenuRow(Icons.Default.PlaylistPlay, "Play next") {
+                    showMenuSheet = false; onPlayNextList(displayedTracks)
                 }
                 val sortLabel = when (sortMode) {
-                    "title" -> "Sort: Title (A-Z)"
-                    "artist" -> "Sort: Artist (A-Z)"
-                    else -> "Sort: Default order"
+                    "newest" -> "Sort: Newest first"
+                    "oldest" -> "Sort: Oldest first"
+                    "title" -> "Sort: Title"
+                    "artist" -> "Sort: Artist"
+                    else -> "Sort: Default ordering"
                 }
-                SettingsFlatRow(Icons.Default.Sort, sortLabel, TextInk) {
-                    sortMode = when (sortMode) {
-                        "default" -> "title"
-                        "title" -> "artist"
-                        else -> "default"
-                    }
+                PlaylistMenuRow(Icons.Default.Sort, sortLabel) {
+                    showMenuSheet = false
+                    showSortSheet = true
                 }
-                SettingsFlatRow(Icons.AutoMirrored.Filled.PlaylistAdd, "Add all to queue", TextInk) {
+                PlaylistMenuRow(Icons.AutoMirrored.Filled.PlaylistAdd, "Add all to queue") {
                     showMenuSheet = false; displayedTracks.forEach { onAddToQueue(it) }
                 }
-                SettingsFlatRow(Icons.Default.Download, "Download playlist", TextInk) {
+                PlaylistMenuRow(Icons.Default.Download, "Download playlist") {
                     showMenuSheet = false; onDownloadAll()
                 }
-                SettingsFlatRow(Icons.Default.Edit, "Edit playlist", TextInk) {
+                PlaylistMenuRow(Icons.Default.Edit, "Edit playlist") {
                     showMenuSheet = false
                     editName = playlist.name
                     pickedCoverUri = null
                     showEditDialog = true
+                }
+            }
+        }
+    }
+
+    if (showSortSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showSortSheet = false },
+            containerColor = CardDark,
+            contentColor = TextInk
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Sort track list by", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextInk, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { showSortSheet = false }) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = TextInk)
+                    }
+                }
+                HorizontalDivider(color = TextInk.copy(alpha = 0.08f))
+                listOf(
+                    "default" to "Default ordering",
+                    "newest" to "Newest first",
+                    "oldest" to "Oldest first",
+                    "title" to "Title",
+                    "artist" to "Artist",
+                ).forEach { (id, label) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { sortMode = id; showSortSheet = false }
+                            .padding(horizontal = 20.dp, vertical = 15.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        if (sortMode == id) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = TextInk, modifier = Modifier.size(22.dp))
+                        } else {
+                            Spacer(Modifier.size(22.dp))
+                        }
+                        Text(label, fontSize = 16.sp, fontWeight = if (sortMode == id) FontWeight.Bold else FontWeight.Normal, color = TextInk)
+                    }
                 }
             }
         }
@@ -4745,10 +4814,10 @@ private fun SettingsGroupHeader(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Box(
-            modifier = Modifier.size(40.dp).clip(CircleShape).background(primaryColor.copy(alpha = 0.16f)),
+            modifier = Modifier.size(40.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.08f)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, contentDescription = null, tint = primaryColor, modifier = Modifier.size(20.dp))
+            Icon(icon, contentDescription = null, tint = TextInk, modifier = Modifier.size(20.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextInk)
@@ -4760,6 +4829,25 @@ private fun SettingsGroupHeader(
             tint = TextInk.copy(alpha = 0.65f),
             modifier = Modifier.graphicsLayer { rotationZ = rot }
         )
+    }
+}
+
+@Composable
+private fun PlaylistMenuRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Icon(icon, contentDescription = null, tint = TextInk, modifier = Modifier.size(24.dp))
+        Text(title, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextInk)
     }
 }
 
@@ -4779,7 +4867,7 @@ private fun SettingsFlatRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Icon(icon, contentDescription = null, tint = primaryColor, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = null, tint = TextInk, modifier = Modifier.size(20.dp))
         Text(title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextInk, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextInk.copy(alpha = 0.55f))
     }
@@ -5042,7 +5130,7 @@ private fun TrackRow(
             Text(track.title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (isDownloaded) {
-                    Icon(Icons.Default.DownloadDone, contentDescription = "Offline", tint = primaryColor, modifier = Modifier.size(13.dp))
+                    Icon(Icons.Default.DownloadDone, contentDescription = "Offline", tint = TextInk.copy(alpha = 0.7f), modifier = Modifier.size(13.dp))
                 }
                 Text(track.artist, fontSize = 13.sp, color = TextInk.copy(alpha = 0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -5101,6 +5189,7 @@ private fun FullscreenPlayerOverlay(
     onSelectTab: (PlayerTab) -> Unit,
     lyrics: LyricsData?,
     isLoadingLyrics: Boolean,
+    romanizeLyrics: Boolean,
     queue: List<Track>,
     currentIndex: Int,
     sleepRemainingSec: Int,
@@ -5282,6 +5371,7 @@ private fun FullscreenPlayerOverlay(
                             isLoading = isLoadingLyrics,
                             positionMs = positionMs,
                             primaryColor = primaryColor,
+                            romanize = romanizeLyrics,
                             onSeek = onSeek,
                         )
                     }
@@ -5413,7 +5503,7 @@ private fun FullscreenPlayerOverlay(
                                     text = line.text,
                                     fontSize = 15.sp,
                                     fontWeight = if (idx == 0) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (idx == 0) primaryColor else Color.White.copy(alpha = 0.68f),
+                                    color = if (idx == 0) Color.White else Color.White.copy(alpha = 0.62f),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -5431,6 +5521,7 @@ private fun LyricsView(
     lyrics: LyricsData?,
     isLoading: Boolean,
     positionMs: Long,
+    romanize: Boolean,
     primaryColor: Color,
     onSeek: (Long) -> Unit,
 ) {
@@ -5456,21 +5547,35 @@ private fun LyricsView(
     ) {
         itemsIndexed(lyrics.lines) { idx, line ->
             val isActive = idx == activeIdx
-            Text(
-                text = line.text,
-                fontSize = if (isActive) 22.sp else 18.sp,
-                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
-                color = when {
-                    isActive -> primaryColor
-                    lyrics.synced -> Color.White.copy(alpha = 0.45f)
-                    else -> Color.White.copy(alpha = 0.85f)
-                },
+            val roman = remember(line.text, romanize) { if (romanize) romanizeLyricLine(line.text) else null }
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
+                    .background(if (isActive) Color.White.copy(alpha = 0.10f) else Color.Transparent)
                     .clickable(enabled = lyrics.synced) { onSeek(line.startMs) }
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            )
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = line.text,
+                    fontSize = if (isActive) 22.sp else 18.sp,
+                    fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Medium,
+                    color = when {
+                        isActive -> Color.White
+                        lyrics.synced -> Color.White.copy(alpha = 0.42f)
+                        else -> Color.White.copy(alpha = 0.88f)
+                    }
+                )
+                if (!roman.isNullOrBlank()) {
+                    Text(
+                        text = roman,
+                        fontSize = if (isActive) 14.sp else 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (isActive) Color.White.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.45f)
+                    )
+                }
+            }
         }
     }
 }
@@ -5603,6 +5708,7 @@ private fun IdentifySongSheetContent(
 private fun ListenTogetherSheetContent(
     roomCode: String?,
     isHost: Boolean,
+    peerCount: Int,
     status: String?,
     primaryColor: Color,
     onCreateRoom: () -> Unit,
@@ -5616,7 +5722,12 @@ private fun ListenTogetherSheetContent(
         if (roomCode != null) {
             Surface(color = TextInk.copy(alpha = 0.08f), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(if (isHost) "Kamu adalah Host \u2022 Kode Ruang: $roomCode" else "Tamu \u2022 Kode Ruang: $roomCode", fontWeight = FontWeight.Bold, color = TextInk)
+                    Text(
+                        if (isHost) "Kamu adalah Host \u2022 Kode: $roomCode \u2022 $peerCount bergabung"
+                        else "Tamu \u2022 Kode Ruang: $roomCode",
+                        fontWeight = FontWeight.Bold,
+                        color = TextInk
+                    )
                     Text(status ?: "Aktif", fontSize = 12.sp, color = TextInk.copy(alpha = 0.75f))
                 }
             }
@@ -6002,6 +6113,7 @@ private fun ArtistSheetContent(
     onToggleFollow: () -> Unit,
     onPlay: (List<Track>, Int) -> Unit,
     onShufflePlay: (List<Track>) -> Unit,
+    onPlayNextList: (List<Track>) -> Unit,
     onToggleLike: (Track) -> Unit,
     onAddToQueue: (Track) -> Unit,
     onDownload: (Track) -> Unit,

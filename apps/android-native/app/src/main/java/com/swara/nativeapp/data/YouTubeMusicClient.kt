@@ -6,6 +6,11 @@ import com.swara.nativeapp.model.Shelf
 import com.swara.nativeapp.model.Track
 import com.swara.nativeapp.model.stringsFor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -274,32 +279,126 @@ class YouTubeMusicClient {
                 val spMatch = Regex("spotify\\.com/(?:intl-[^/]+/)?playlist/([A-Za-z0-9]+)").find(url)
                 if (spMatch != null) {
                     val plId = spMatch.groupValues[1]
+                    val ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
                     val req = Request.Builder()
                         .url("https://open.spotify.com/embed/playlist/$plId")
-                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        .header("User-Agent", ua)
                         .build()
                     val html = client.newCall(req).execute().use { res ->
                         if (!res.isSuccessful) return@withContext Result.failure(Exception("Spotify HTTP ${res.code}"))
                         res.body?.string().orEmpty()
                     }
-                    val marker = html.indexOf("__NEXT_DATA__")
-                    if (marker < 0) return@withContext Result.failure(Exception("Playlist Spotify tidak ditemukan / privat"))
-                    val start = html.indexOf('>', marker) + 1
-                    val end = html.indexOf("</script>", start)
-                    val json = JSONObject(html.substring(start, end))
-                    val entity = json.optJSONObject("props")?.optJSONObject("pageProps")
-                        ?.optJSONObject("state")?.optJSONObject("data")?.optJSONObject("entity")
-                        ?: return@withContext Result.failure(Exception("Data playlist Spotify kosong"))
-                    val plTitle = entity.optString("name").ifBlank { entity.optString("title") }.ifBlank { "Playlist Spotify" }
-                    val trackList = entity.optJSONArray("trackList") ?: JSONArray()
-                    val resolved = mutableListOf<Track>()
-                    for (i in 0 until trackList.length()) {
-                        val item = trackList.optJSONObject(i) ?: continue
-                        val tTitle = item.optString("title").trim()
-                        val tArtist = item.optString("subtitle").replace('\u00A0', ' ').trim()
-                        if (tTitle.isBlank()) continue
-                        val hit = runCatching { searchTracks("$tTitle $tArtist", hl, gl).firstOrNull() }.getOrNull()
-                        if (hit != null) resolved.add(hit)
+                    val token = Regex("\"accessToken\":\"([^\"]+)\"").find(html)?.groupValues?.get(1)
+                    var plTitle = "Playlist Spotify"
+                    val queries = mutableListOf<Pair<String, String>>()
+
+                    if (!token.isNullOrBlank()) {
+                        var queryHash = "21ea11a6ac75a5f3e01fd365d29c18e0a4a8b7dc09f89bbb5d73910190c6acaf"
+                        var hashRefreshed = false
+                        var offset = 0
+                        var totalCount = Int.MAX_VALUE
+                        while (offset < totalCount) {
+                            val varsJson = JSONObject().apply {
+                                put("uri", "spotify:playlist:$plId")
+                                put("offset", offset)
+                                put("limit", 100)
+                                put("enableWatchFeedEntrypoint", false)
+                            }.toString()
+                            val extJson = JSONObject().apply {
+                                put("persistedQuery", JSONObject().apply {
+                                    put("version", 1)
+                                    put("sha256Hash", queryHash)
+                                })
+                            }.toString()
+                            val pfUrl = "https://api-partner.spotify.com/pathfinder/v1/query" +
+                                "?operationName=fetchPlaylist" +
+                                "&variables=${java.net.URLEncoder.encode(varsJson, "UTF-8")}" +
+                                "&extensions=${java.net.URLEncoder.encode(extJson, "UTF-8")}"
+                            val pfReq = Request.Builder()
+                                .url(pfUrl)
+                                .header("Authorization", "Bearer $token")
+                                .header("User-Agent", ua)
+                                .header("app-platform", "WebPlayer")
+                                .build()
+                            val pfBody = client.newCall(pfReq).execute().use { res ->
+                                if (res.isSuccessful) res.body?.string().orEmpty() else ""
+                            }
+                            if (pfBody.isBlank()) break
+                            val pfJson = JSONObject(pfBody)
+                            if (pfJson.has("errors") && !hashRefreshed) {
+                                hashRefreshed = true
+                                val webHtml = runCatching {
+                                    client.newCall(Request.Builder().url("https://open.spotify.com/playlist/$plId").header("User-Agent", ua).build())
+                                        .execute().use { it.body?.string().orEmpty() }
+                                }.getOrDefault("")
+                                val jsUrl = Regex("https://open\\.spotifycdn\\.com/cdn/build/web-player/web-player\\.[^\"']+\\.js").find(webHtml)?.value
+                                if (!jsUrl.isNullOrBlank()) {
+                                    val jsBody = runCatching {
+                                        client.newCall(Request.Builder().url(jsUrl).header("User-Agent", ua).build())
+                                            .execute().use { it.body?.string().orEmpty() }
+                                    }.getOrDefault("")
+                                    val newHash = Regex("\"fetchPlaylist\",\"query\",\"([0-9a-f]{64})\"").find(jsBody)?.groupValues?.get(1)
+                                    if (!newHash.isNullOrBlank() && newHash != queryHash) {
+                                        queryHash = newHash
+                                        continue
+                                    }
+                                }
+                            }
+                            val plV2 = pfJson.optJSONObject("data")?.optJSONObject("playlistV2") ?: break
+                            val name = plV2.optString("name").trim()
+                            if (name.isNotBlank()) plTitle = name
+                            val content = plV2.optJSONObject("content") ?: break
+                            totalCount = content.optInt("totalCount", 0)
+                            val items = content.optJSONArray("items") ?: break
+                            if (items.length() == 0) break
+                            for (i in 0 until items.length()) {
+                                val tr = items.optJSONObject(i)?.optJSONObject("itemV2")?.optJSONObject("data") ?: continue
+                                val tTitle = tr.optString("name").trim()
+                                if (tTitle.isBlank()) continue
+                                val artistItems = tr.optJSONObject("artists")?.optJSONArray("items")
+                                val artists = buildList {
+                                    if (artistItems != null) {
+                                        for (j in 0 until artistItems.length()) {
+                                            val aName = artistItems.optJSONObject(j)?.optJSONObject("profile")?.optString("name")?.trim().orEmpty()
+                                            if (aName.isNotBlank()) add(aName)
+                                        }
+                                    }
+                                }.joinToString(" ")
+                                queries.add(tTitle to artists)
+                            }
+                            offset += items.length()
+                        }
+                    }
+
+                    // Fallback to embed __NEXT_DATA__ if pathfinder returned nothing
+                    if (queries.isEmpty()) {
+                        val marker = html.indexOf("__NEXT_DATA__")
+                        if (marker < 0) return@withContext Result.failure(Exception("Playlist Spotify tidak ditemukan / privat"))
+                        val start = html.indexOf('>', marker) + 1
+                        val end = html.indexOf("</script>", start)
+                        val json = JSONObject(html.substring(start, end))
+                        val entity = json.optJSONObject("props")?.optJSONObject("pageProps")
+                            ?.optJSONObject("state")?.optJSONObject("data")?.optJSONObject("entity")
+                            ?: return@withContext Result.failure(Exception("Data playlist Spotify kosong"))
+                        plTitle = entity.optString("name").ifBlank { entity.optString("title") }.ifBlank { "Playlist Spotify" }
+                        val trackList = entity.optJSONArray("trackList") ?: JSONArray()
+                        for (i in 0 until trackList.length()) {
+                            val item = trackList.optJSONObject(i) ?: continue
+                            val tTitle = item.optString("title").trim()
+                            val tArtist = item.optString("subtitle").replace('\u00A0', ' ').trim()
+                            if (tTitle.isNotBlank()) queries.add(tTitle to tArtist)
+                        }
+                    }
+
+                    val sem = Semaphore(8)
+                    val resolved = coroutineScope {
+                        queries.map { (tTitle, tArtist) ->
+                            async {
+                                sem.withPermit {
+                                    runCatching { searchTracks("$tTitle $tArtist", hl, gl).firstOrNull() }.getOrNull()
+                                }
+                            }
+                        }.awaitAll().filterNotNull()
                     }
                     return@withContext if (resolved.isEmpty()) {
                         Result.failure(Exception("Tidak ada lagu Spotify yang cocok ditemukan"))

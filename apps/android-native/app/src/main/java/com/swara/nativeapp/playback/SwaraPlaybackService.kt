@@ -152,6 +152,28 @@ class SwaraPlaybackService : MediaSessionService() {
         @Volatile
         var dynamicIslandEnabled: Boolean = true
 
+        @Volatile
+        var songCacheEnabled: Boolean = true
+
+        @Volatile
+        var maxSongCacheMb: Int = 1126
+
+        fun enforceSongCacheLimit(ctx: android.content.Context) {
+            val maxBytes = maxSongCacheMb.toLong().coerceAtLeast(128L) * 1024L * 1024L
+            val songDir = java.io.File(ctx.cacheDir, "song_cache")
+            val imgDir = java.io.File(ctx.cacheDir, "image_cache")
+            val files = ((songDir.listFiles()?.toList().orEmpty()) + (imgDir.listFiles()?.toList().orEmpty()))
+                .filter { it.isFile }
+                .sortedBy { it.lastModified() }
+                .toMutableList()
+            var total = files.sumOf { it.length() }
+            while (total > maxBytes && files.isNotEmpty()) {
+                val oldest = files.removeAt(0)
+                val len = oldest.length()
+                if (oldest.delete()) total -= len
+            }
+        }
+
         fun setAppInForeground(inForeground: Boolean) {
             appInForeground = inForeground
             activeService?.mainHandler?.post {
@@ -304,9 +326,36 @@ class SwaraPlaybackService : MediaSessionService() {
             ) {
                 return@Factory spec.withUri(Uri.fromFile(offlineFile))
             }
+            val songCacheDir = java.io.File(cacheDir, "song_cache")
+            val cachedFile = java.io.File(songCacheDir, "$videoId.m4a")
+            if (songCacheEnabled &&
+                cachedFile.canonicalPath.startsWith(songCacheDir.canonicalPath + java.io.File.separator) &&
+                cachedFile.exists() && cachedFile.length() > 1024L
+            ) {
+                cachedFile.setLastModified(System.currentTimeMillis())
+                return@Factory spec.withUri(Uri.fromFile(cachedFile))
+            }
             val url = streamCache[videoId] ?: runBlocking { yt.resolveAudioUrl(videoId, quality = audioQuality) }
                 .getOrElse { throw IOException(it.message ?: "Audio tidak tersedia", it) }
                 .also { streamCache[videoId] = it }
+            if (songCacheEnabled && !cachedFile.exists()) {
+                imgExecutor.execute {
+                    runCatching {
+                        songCacheDir.mkdirs()
+                        val tmp = java.io.File(songCacheDir, "$videoId.m4a.tmp")
+                        val req = okhttp3.Request.Builder().url(url).build()
+                        okhttp3.OkHttpClient().newCall(req).execute().use { res ->
+                            if (res.isSuccessful) {
+                                res.body?.byteStream()?.use { inp ->
+                                    tmp.outputStream().use { out -> inp.copyTo(out) }
+                                }
+                                if (tmp.length() > 1024L) tmp.renameTo(cachedFile) else tmp.delete()
+                            }
+                        }
+                        enforceSongCacheLimit(applicationContext)
+                    }
+                }
+            }
             spec.withUri(Uri.parse(url))
         }
 
