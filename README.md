@@ -70,5 +70,9 @@ pnpm build
 ## Contributing
 Contributions, bug reports, and feature requests are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
+## Website & Contact
+- Website & Download: https://swaramusic.github.io/Swara/
+- Support Email: `12swara90@gmail.com`
+
 ## License
 Distributed under the **GNU General Public License v3.0 (GPL-3.0)**.

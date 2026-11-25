@@ -16,6 +16,9 @@
     import { OrbitControls } from 'https://esm.sh/three@0.170.0/examples/jsm/controls/OrbitControls.js';
 
     const h = React.createElement;
+    // Paste URL Web App Google Apps Script Anda di sini agar saran/komplain masuk realtime ke Google Sheets:
+    const FEEDBACK_SCRIPT_URL = '';
+    const SUPPORT_EMAIL = '12swara90@gmail.com';
 
     function Headphone3D() {
       const mountRef = useRef(null);
@@ -40,7 +43,6 @@
         controls.autoRotate = true;
         controls.autoRotateSpeed = 1.6;
 
-        // Studio lighting
         scene.add(new THREE.AmbientLight(0xffffff, 0.9));
         const keyLight = new THREE.DirectionalLight(0x60a5fa, 2.4);
         keyLight.position.set(4, 5, 5);
@@ -49,50 +51,40 @@
         rimLight.position.set(-5, -2, -3);
         scene.add(rimLight);
 
-        // 3D Headphone Group
         const hp = new THREE.Group();
         const matteDark = new THREE.MeshStandardMaterial({ color: 0x161d2f, roughness: 0.35, metalness: 0.65 });
         const cushionMat = new THREE.MeshStandardMaterial({ color: 0x0f1420, roughness: 0.85, metalness: 0.1 });
         const accentMat = new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.25, metalness: 0.8, emissive: 0x1d4ed8, emissiveIntensity: 0.35 });
         const metalMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.2, metalness: 0.9 });
 
-        // Headband arch
-        const bandGeo = new THREE.TorusGeometry(1.35, 0.11, 24, 64, Math.PI * 1.06);
-        const band = new THREE.Mesh(bandGeo, matteDark);
+        const band = new THREE.Mesh(new THREE.TorusGeometry(1.35, 0.11, 24, 64, Math.PI * 1.06), matteDark);
         band.rotation.z = -Math.PI * 0.03;
         band.position.y = 0.28;
         hp.add(band);
 
-        // Inner soft headband pad
-        const padGeo = new THREE.TorusGeometry(1.23, 0.075, 16, 48, Math.PI * 0.72);
-        const pad = new THREE.Mesh(padGeo, cushionMat);
+        const pad = new THREE.Mesh(new THREE.TorusGeometry(1.23, 0.075, 16, 48, Math.PI * 0.72), cushionMat);
         pad.rotation.z = Math.PI * 0.14;
         pad.position.y = 0.28;
         hp.add(pad);
 
-        // Earcups (Left & Right)
         [-1, 1].forEach((side) => {
           const cupGroup = new THREE.Group();
           cupGroup.position.set(side * 1.38, -0.35, 0);
           cupGroup.rotation.z = side * -0.14;
 
-          // Yoke stem
           const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.62, 16), metalMat);
           stem.position.set(side * 0.04, 0.45, 0);
           cupGroup.add(stem);
 
-          // Outer shell
           const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.56, 0.62, 0.34, 36), matteDark);
           shell.rotation.z = Math.PI / 2;
           cupGroup.add(shell);
 
-          // Glowing acoustic ring
           const ring = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.035, 16, 48), accentMat);
           ring.rotation.y = Math.PI / 2;
           ring.position.x = side * 0.18;
           cupGroup.add(ring);
 
-          // Ear cushion
           const cushion = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.17, 20, 48), cushionMat);
           cushion.rotation.y = Math.PI / 2;
           cushion.position.x = -side * 0.22;
@@ -138,6 +130,11 @@
     function App() {
       const [release, setRelease] = useState({ tag: 'v1.0.0', url: 'https://github.com/swaramusic/Swara/releases', label: 'Download APK' });
       const [showQris, setShowQris] = useState(false);
+      const [showFeedback, setShowFeedback] = useState(false);
+      const [fbType, setFbType] = useState('Saran');
+      const [fbContact, setFbContact] = useState('');
+      const [fbMsg, setFbMsg] = useState('');
+      const [fbStatus, setFbStatus] = useState('');
 
       useEffect(() => {
         fetch('https://api.github.com/repos/swaramusic/Swara/releases/latest')
@@ -154,58 +151,106 @@
           .catch(() => {});
       }, []);
 
+      async function submitFeedback(e) {
+        e.preventDefault();
+        if (!fbMsg.trim()) return;
+        if (!FEEDBACK_SCRIPT_URL) {
+          const subject = encodeURIComponent(`[Swara ${fbType}] Masukan Pengguna`);
+          const body = encodeURIComponent(`Jenis: ${fbType}\nKontak: ${fbContact || '-'}\n\n${fbMsg}`);
+          window.location.href = `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
+          setFbStatus('Membuka aplikasi email...');
+          return;
+        }
+        setFbStatus('Mengirim...');
+        try {
+          await fetch(FEEDBACK_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: fbType, contact: fbContact, message: fbMsg, time: new Date().toISOString() }),
+          });
+          setFbStatus('Terkirim ke Google Sheets!');
+          setFbMsg('');
+        } catch {
+          setFbStatus('Gagal mengirim. Coba lagi.');
+        }
+      }
+
       return h(
         'div',
         { className: 'min-h-screen flex flex-col justify-between bg-[radial-gradient(circle_at_70%_20%,rgba(37,99,235,0.22),transparent_48%),radial-gradient(circle_at_20%_80%,rgba(28,155,144,0.16),transparent_45%)]' },
         [
-          // Minimal Nav
           h('nav', { key: 'nav', className: 'max-w-5xl w-full mx-auto px-6 py-6 flex items-center justify-between' }, [
             h('span', { className: 'font-extrabold tracking-[0.22em] text-lg' }, 'SWARA'),
             h('div', { className: 'flex items-center gap-5 text-sm text-white/70' }, [
-              h('button', { onClick: () => setShowQris(true), className: 'hover:text-white transition cursor-pointer' }, 'Support'),
+              h('button', { onClick: () => setShowFeedback(true), className: 'hover:text-white transition cursor-pointer' }, 'Feedback'),
+              h('button', { onClick: () => setShowQris(true), className: 'hover:text-white transition cursor-pointer' }, 'QRIS'),
               h('a', { href: 'https://github.com/swaramusic/Swara', target: '_blank', rel: 'noreferrer', className: 'hover:text-white transition' }, 'GitHub'),
             ]),
           ]),
 
-          // Hero + 3D Headphone
           h('main', { key: 'main', className: 'max-w-5xl w-full mx-auto px-6 grid grid-cols-1 md:grid-cols-2 gap-6 items-center my-auto' }, [
             h('div', { className: 'space-y-5 text-center md:text-left' }, [
               h('span', { className: 'inline-block px-3.5 py-1 rounded-full text-xs font-semibold bg-[#2563EB]/20 text-[#93C5FD]' }, `${release.tag} • GPL-3.0`),
               h('h1', { className: 'text-4xl sm:text-5xl font-extrabold tracking-tight leading-tight' }, 'Swara'),
-              h('p', { className: 'text-white/65 text-base max-w-md mx-auto md:mx-0' }, 'Pure Kotlin & Media3 Music Player.'),
+              h('p', { className: 'text-white/65 text-base max-w-md mx-auto md:mx-0' }, 'Fast & Fluid Music Player.'),
               h('div', { className: 'flex flex-wrap justify-center md:justify-start gap-3 pt-1' }, [
                 h('a', { href: release.url, target: '_blank', rel: 'noreferrer', className: 'px-6 py-3 rounded-full bg-[#2563EB] hover:bg-[#1D4ED8] font-bold text-sm text-white transition shadow-lg shadow-[#2563EB]/25' }, release.label),
-                h('button', { onClick: () => setShowQris(true), className: 'px-6 py-3 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 font-semibold text-sm transition cursor-pointer' }, 'Support (QRIS)'),
+                h('button', { onClick: () => setShowFeedback(true), className: 'px-6 py-3 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 font-semibold text-sm transition cursor-pointer' }, 'Saran / Komplain'),
               ]),
             ]),
             h(Headphone3D, { key: '3d' }),
           ]),
 
-          // Minimal Footer
-          h('footer', { key: 'foot', className: 'text-center py-6 text-xs text-white/45' }, 'swaramusic/Swara • tirtadhi'),
+          h('footer', { key: 'foot', className: 'text-center py-6 text-xs text-white/45' }, `swaramusic/Swara • ${SUPPORT_EMAIL}`),
 
-          // QRIS Modal (QR image only, no name, no Saweria)
           showQris &&
             h(
               'div',
-              {
-                key: 'modal',
-                onClick: () => setShowQris(false),
-                className: 'fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4',
-              },
+              { key: 'qrisModal', onClick: () => setShowQris(false), className: 'fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4' },
               h(
                 'div',
-                {
-                  onClick: (e) => e.stopPropagation(),
-                  className: 'bg-[#141A28] border border-white/15 rounded-3xl p-6 max-w-xs w-full text-center space-y-4',
-                },
+                { onClick: (e) => e.stopPropagation(), className: 'bg-[#141A28] border border-white/15 rounded-3xl p-6 max-w-xs w-full text-center space-y-4' },
                 [
                   h('h2', { className: 'font-bold text-lg' }, 'Support via QRIS'),
                   h('div', { className: 'bg-white rounded-2xl p-3 mx-auto w-56 h-56 flex items-center justify-center' }, [
                     h('img', { src: './qris-qr.png', alt: 'QRIS', className: 'w-full h-full object-contain' }),
                   ]),
-                  h('a', { href: 'https://buymeacoffee.com/tirtadhi', target: '_blank', rel: 'noreferrer', className: 'block w-full py-2.5 rounded-full bg-white/10 hover:bg-white/15 text-sm font-semibold transition' }, 'Buy Me a Coffee'),
-                  h('button', { onClick: () => setShowQris(false), className: 'text-xs text-white/55 hover:text-white cursor-pointer' }, 'Tutup'),
+                  h('button', { onClick: () => setShowQris(false), className: 'text-xs text-white/60 hover:text-white cursor-pointer' }, 'Tutup'),
+                ]
+              )
+            ),
+
+          showFeedback &&
+            h(
+              'div',
+              { key: 'fbModal', onClick: () => setShowFeedback(false), className: 'fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4' },
+              h(
+                'form',
+                { onSubmit: submitFeedback, onClick: (e) => e.stopPropagation(), className: 'bg-[#141A28] border border-white/15 rounded-3xl p-6 max-w-sm w-full space-y-3' },
+                [
+                  h('h2', { className: 'font-bold text-lg' }, 'Saran & Komplain'),
+                  h('div', { className: 'flex gap-2' }, ['Saran', 'Komplain', 'Bug'].map((t) =>
+                    h('button', {
+                      type: 'button', key: t, onClick: () => setFbType(t),
+                      className: `flex-1 py-1.5 rounded-full text-xs font-semibold cursor-pointer ${fbType === t ? 'bg-[#2563EB] text-white' : 'bg-white/10 text-white/70'}`,
+                    }, t)
+                  )),
+                  h('input', {
+                    type: 'text', value: fbContact, onChange: (e) => setFbContact(e.target.value),
+                    placeholder: 'Nama / Email (opsional)',
+                    className: 'w-full px-3.5 py-2 rounded-xl bg-black/30 border border-white/15 text-sm outline-none focus:border-[#2563EB]',
+                  }),
+                  h('textarea', {
+                    rows: 4, required: true, value: fbMsg, onChange: (e) => setFbMsg(e.target.value),
+                    placeholder: 'Tulis masukan, saran, atau kendala Anda...',
+                    className: 'w-full px-3.5 py-2 rounded-xl bg-black/30 border border-white/15 text-sm outline-none focus:border-[#2563EB]',
+                  }),
+                  fbStatus && h('p', { className: 'text-xs text-[#93C5FD]' }, fbStatus),
+                  h('div', { className: 'flex justify-end gap-2 pt-1' }, [
+                    h('button', { type: 'button', onClick: () => setShowFeedback(false), className: 'px-4 py-2 text-xs text-white/65 hover:text-white cursor-pointer' }, 'Batal'),
+                    h('button', { type: 'submit', className: 'px-5 py-2 rounded-full bg-[#2563EB] hover:bg-[#1D4ED8] text-xs font-bold text-white cursor-pointer' }, 'Kirim'),
+                  ]),
                 ]
               )
             ),

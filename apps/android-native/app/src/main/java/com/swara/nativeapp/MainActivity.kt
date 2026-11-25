@@ -599,7 +599,18 @@ fun SwaraNativeApp(
                 }
 
                 Box(modifier = Modifier.fillMaxSize()) {
-                    when (activeTab) {
+                    AnimatedContent(
+                        targetState = activeTab,
+                        transitionSpec = {
+                            val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                            (slideInHorizontally(spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)) { dir * it / 5 } +
+                                fadeIn(tween(220)) +
+                                scaleIn(initialScale = 0.97f, animationSpec = tween(220))) togetherWith
+                                (slideOutHorizontally(tween(180)) { -dir * it / 6 } + fadeOut(tween(160)))
+                        },
+                        label = "mainTabTransition"
+                    ) { currentNavTab ->
+                    when (currentNavTab) {
                         NavTab.HOME -> HomeScreen(
                             shelves = state.homeShelves,
                             recent = state.recentTracks,
@@ -722,6 +733,7 @@ fun SwaraNativeApp(
                             onOpenSoundStyle = { showSoundStyleSheet = true },
                             onOpenAbout = { showAboutSheet = true },
                         )
+                    }
                     }
                 }
             }
@@ -3844,12 +3856,12 @@ private fun AboutOverlay(
             }
         }
 
-        // Community & Social links
+        // Community & Contact links
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             listOf(
                 Triple("GitHub", Icons.Default.Code, "https://github.com/swaramusic/Swara"),
-                Triple("Releases", Icons.Default.NewReleases, "https://github.com/swaramusic/Swara/releases"),
-                Triple("Issues", Icons.Default.BugReport, "https://github.com/swaramusic/Swara/issues"),
+                Triple("Website", Icons.Default.Public, "https://swaramusic.github.io/Swara/"),
+                Triple("Email", Icons.Default.Email, "mailto:12swara90@gmail.com"),
             ).forEach { (label, ic, url) ->
                 Surface(
                     color = CardDark,
@@ -3958,15 +3970,6 @@ private fun AboutOverlay(
                     Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(if (qrisSaved) "QRIS Tersimpan di Galeri" else "Simpan Gambar QRIS", fontWeight = FontWeight.Bold)
-                }
-                OutlinedButton(
-                    onClick = { showSupportSheet = false; openUrl("https://buymeacoffee.com/tirtadhi") },
-                    shape = RoundedCornerShape(50),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, TextInk.copy(alpha = 0.22f)),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextInk),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Buy Me a Coffee", fontWeight = FontWeight.SemiBold)
                 }
                 Spacer(Modifier.height(12.dp))
             }
