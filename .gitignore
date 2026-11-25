@@ -1,0 +1,26 @@
+node_modules/
+dist/
+build/
+.turbo/
+.expo/
+target/
+*.log
+.DS_Store
+
+# Android / Gradle
+.gradle/
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+*.jks
+*.keystore
+captures/
+.idea/
+*.iml
+.cxx/
+apps/android-native/.gradle/
+apps/android-native/app/build/
+apps/android-native/build/
+apps/android-native/local.properties
