@@ -1580,7 +1580,7 @@ private fun HomeScreen(
                             Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("Putar", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(S.playBtn, color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             }
                         }
                     }
@@ -3425,7 +3425,7 @@ private fun SettingsScreen(
         // 2. Audio & Playback
         SettingsGroupHeader(
             icon = Icons.Default.GraphicEq,
-            title = "Audio & Playback",
+            title = S.audioPlaybackTitle,
             subtitle = "${audioQuality.uppercase()} \u2022 ${S.soundStyleBtn} \u2022 ${S.eqBtn}",
             expanded = expandedGroup == "audio",
             primaryColor = primaryColor,
@@ -3460,10 +3460,10 @@ private fun SettingsScreen(
         HorizontalDivider(color = TextInk.copy(alpha = 0.08f))
 
         // 3. Integrations (Discord Soon, Listen Together)
-        val ltLabel = if (listenRoomCode != null) "Listen Together: ${listenStatus ?: listenRoomCode}" else S.listenTogether
+        val ltLabel = if (listenRoomCode != null) "${S.listenTogether}: ${listenStatus ?: listenRoomCode}" else S.listenTogether
         SettingsGroupHeader(
             icon = Icons.Default.Hub,
-            title = "Integrations",
+            title = S.integrationsTitle,
             subtitle = "Discord (Soon) \u2022 $ltLabel",
             expanded = expandedGroup == "integrations",
             primaryColor = primaryColor,
@@ -3558,8 +3558,8 @@ private fun SettingsScreen(
         HorizontalDivider(color = TextInk.copy(alpha = 0.08f))
         SettingsGroupHeader(
             icon = Icons.Default.Info,
-            title = "About Swara",
-            subtitle = "Version 1.0.0 \u2022 Updates \u2022 Developer",
+            title = S.aboutTitle,
+            subtitle = S.aboutSubtitle,
             expanded = false,
             primaryColor = primaryColor,
             onClick = onOpenAbout
@@ -3768,19 +3768,21 @@ private fun AboutOverlay(
     val abiLabel = remember { android.os.Build.SUPPORTED_ABIS.firstOrNull()?.uppercase() ?: "UNIVERSAL" }
 
     var isCheckingUpdate by remember { mutableStateOf(false) }
-    var updateStatus by remember { mutableStateOf("Tap to check latest GitHub release") }
+    var updateStatus by remember(LangCode) { mutableStateOf(S.tapCheckUpdates) }
     var updateUrl by remember { mutableStateOf<String?>(null) }
     var showDevSheet by remember { mutableStateOf(false) }
     var showSupportSheet by remember { mutableStateOf(false) }
 
     val openUrl: (String) -> Unit = { url ->
-        runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+        if (url.startsWith("https://", ignoreCase = true)) {
+            runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+        }
     }
 
     val checkUpdates: () -> Unit = {
         if (!isCheckingUpdate) {
             isCheckingUpdate = true
-            updateStatus = "Checking GitHub Releases..."
+            updateStatus = S.checkingUpdates
             updateUrl = null
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 val res = runCatching {
@@ -3811,8 +3813,8 @@ private fun AboutOverlay(
                             updateStatus = "Update available: v$v"
                             updateUrl = res.second
                         }
-                        res.first == "latest" -> updateStatus = "You're on the latest version (v$appVersion)"
-                        else -> updateStatus = "Could not check updates. Try again later."
+                        res.first == "latest" -> updateStatus = "${S.latestVersionMsg} (v$appVersion)"
+                        else -> updateStatus = S.updateErrorMsg
                     }
                 }
             }
@@ -3833,7 +3835,7 @@ private fun AboutOverlay(
             IconButton(onClick = onClose, modifier = Modifier.size(38.dp)) {
                 Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextInk)
             }
-            Text("About Swara", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = TextInk)
+            Text(S.aboutTitle, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = TextInk)
         }
 
         // Hero Header
@@ -3876,7 +3878,7 @@ private fun AboutOverlay(
                     Icon(Icons.Default.Update, contentDescription = null, tint = primaryColor, modifier = Modifier.size(22.dp))
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Check for updates", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextInk)
+                    Text(S.checkUpdates, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextInk)
                     Text(updateStatus, fontSize = 12.sp, color = TextInk.copy(alpha = 0.65f))
                 }
                 val dlUrl = updateUrl
@@ -3894,32 +3896,40 @@ private fun AboutOverlay(
             }
         }
 
-        // Community & Contact links
+        // Community & Website links (real GitHub logo, no email)
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            listOf(
-                Triple("GitHub", Icons.Default.Code, "https://github.com/swaramusic/Swara"),
-                Triple("Website", Icons.Default.Public, "https://swaramusic.github.io/Swara/"),
-                Triple("Email", Icons.Default.Email, "mailto:12swara90@gmail.com"),
-            ).forEach { (label, ic, url) ->
-                Surface(
-                    color = CardDark,
-                    shape = RoundedCornerShape(18.dp),
-                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).clickable { openUrl(url) }
+            Surface(
+                color = CardDark,
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).clickable { openUrl("https://github.com/swaramusic/Swara") }
+            ) {
+                Column(
+                    modifier = Modifier.padding(vertical = 14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(vertical = 14.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(ic, contentDescription = label, tint = primaryColor, modifier = Modifier.size(22.dp))
-                        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextInk)
-                    }
+                    GitHubLogoIcon(tint = primaryColor, modifier = Modifier.size(22.dp))
+                    Text("GitHub", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextInk)
+                }
+            }
+            Surface(
+                color = CardDark,
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).clickable { openUrl("https://swaramusic.github.io/Swara/") }
+            ) {
+                Column(
+                    modifier = Modifier.padding(vertical = 14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(Icons.Default.Public, contentDescription = "Website", tint = primaryColor, modifier = Modifier.size(22.dp))
+                    Text("Website", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextInk)
                 }
             }
         }
 
         // Creator / Developer (Metrolist-inspired profile + interactive bottom sheet)
-        Text("Developer", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextInk.copy(alpha = 0.72f), modifier = Modifier.padding(top = 4.dp))
+        Text(S.developerTitle, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextInk.copy(alpha = 0.72f), modifier = Modifier.padding(top = 4.dp))
         Surface(
             color = CardDark,
             shape = RoundedCornerShape(18.dp),
@@ -3938,7 +3948,7 @@ private fun AboutOverlay(
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text("tirtadhi", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextInk)
-                    Text("Creator & Lead Developer", fontSize = 12.sp, color = TextInk.copy(alpha = 0.65f))
+                    Text(S.creatorLeadDev, fontSize = 12.sp, color = TextInk.copy(alpha = 0.65f))
                 }
                 Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextInk.copy(alpha = 0.55f))
             }
@@ -3967,7 +3977,7 @@ private fun AboutOverlay(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("Sponsor Developer", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextInk)
+                Text(S.sponsorDev, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextInk)
                 Surface(
                     color = Color.White,
                     shape = RoundedCornerShape(18.dp),
@@ -3975,13 +3985,13 @@ private fun AboutOverlay(
                 ) {
                     Image(
                         painter = painterResource(id = R.drawable.swara_qris_qr),
-                        contentDescription = "QRIS",
+                        contentDescription = "Support",
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize().padding(10.dp)
                     )
                 }
                 Text(
-                    "Scan QRIS via GoPay, OVO, DANA, ShopeePay, atau Mobile Banking",
+                    S.supportScanHint,
                     fontSize = 12.sp,
                     color = TextInk.copy(alpha = 0.68f),
                     textAlign = TextAlign.Center
@@ -4007,7 +4017,7 @@ private fun AboutOverlay(
                 ) {
                     Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(if (qrisSaved) "QRIS Tersimpan di Galeri" else "Simpan Gambar QRIS", fontWeight = FontWeight.Bold)
+                    Text(if (qrisSaved) S.qrSavedBtn else S.saveQrBtn, fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.height(12.dp))
             }
@@ -4033,7 +4043,7 @@ private fun AboutOverlay(
                     )
                     Column {
                         Text("tirtadhi", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextInk)
-                        Text("Creator & Lead Developer", fontSize = 13.sp, color = TextInk.copy(alpha = 0.68f))
+                        Text(S.creatorLeadDev, fontSize = 13.sp, color = TextInk.copy(alpha = 0.68f))
                     }
                 }
                 FilledTonalButton(
@@ -4042,7 +4052,9 @@ private fun AboutOverlay(
                     colors = ButtonDefaults.filledTonalButtonColors(containerColor = primaryColor, contentColor = Color.White),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Open GitHub Profile", fontWeight = FontWeight.Bold)
+                    GitHubLogoIcon(tint = Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("GitHub", fontWeight = FontWeight.Bold)
                 }
                 OutlinedButton(
                     onClick = { showDevSheet = false; showSupportSheet = true },
@@ -4053,11 +4065,52 @@ private fun AboutOverlay(
                 ) {
                     Icon(Icons.Default.QrCode2, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Sponsor developer", fontWeight = FontWeight.SemiBold)
+                    Text(S.sponsorDev, fontWeight = FontWeight.SemiBold)
                 }
                 Spacer(Modifier.height(12.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun GitHubLogoIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val s = minOf(w, h) / 24f
+        val ox = (w - 24f * s) / 2f
+        val oy = (h - 24f * s) / 2f
+        val p = androidx.compose.ui.graphics.Path().apply {
+            moveTo(ox + 12f * s, oy + 2f * s)
+            cubicTo(ox + 6.48f * s, oy + 2f * s, ox + 2f * s, oy + 6.59f * s, ox + 2f * s, oy + 12.25f * s)
+            cubicTo(ox + 2f * s, oy + 16.78f * s, ox + 4.87f * s, oy + 20.62f * s, ox + 8.84f * s, oy + 21.97f * s)
+            cubicTo(ox + 9.34f * s, oy + 22.07f * s, ox + 9.52f * s, oy + 21.75f * s, ox + 9.52f * s, oy + 21.48f * s)
+            lineTo(ox + 9.52f * s, oy + 19.78f * s)
+            cubicTo(ox + 6.73f * s, oy + 20.4f * s, ox + 6.14f * s, oy + 18.4f * s, ox + 6.14f * s, oy + 18.4f * s)
+            cubicTo(ox + 5.68f * s, oy + 17.22f * s, ox + 5.03f * s, oy + 16.91f * s, ox + 5.03f * s, oy + 16.91f * s)
+            cubicTo(ox + 4.12f * s, oy + 16.27f * s, ox + 5.1f * s, oy + 16.28f * s, ox + 5.1f * s, oy + 16.28f * s)
+            cubicTo(ox + 6.1f * s, oy + 16.36f * s, ox + 6.63f * s, oy + 17.34f * s, ox + 6.63f * s, oy + 17.34f * s)
+            cubicTo(ox + 7.52f * s, oy + 18.9f * s, ox + 8.97f * s, oy + 18.45f * s, ox + 9.54f * s, oy + 18.19f * s)
+            cubicTo(ox + 9.63f * s, oy + 17.53f * s, ox + 9.89f * s, oy + 17.08f * s, ox + 10.18f * s, oy + 16.82f * s)
+            cubicTo(ox + 7.95f * s, oy + 16.56f * s, ox + 5.62f * s, oy + 15.68f * s, ox + 5.62f * s, oy + 11.75f * s)
+            cubicTo(ox + 5.62f * s, oy + 10.63f * s, ox + 6.01f * s, oy + 9.71f * s, ox + 6.65f * s, oy + 9f * s)
+            cubicTo(ox + 6.55f * s, oy + 8.74f * s, ox + 6.2f * s, oy + 7.69f * s, ox + 6.75f * s, oy + 6.28f * s)
+            cubicTo(ox + 6.75f * s, oy + 6.28f * s, ox + 7.59f * s, oy + 6f * s, ox + 9.5f * s, oy + 7.33f * s)
+            cubicTo(ox + 10.3f * s, oy + 7.1f * s, ox + 11.15f * s, oy + 6.99f * s, ox + 12f * s, oy + 6.98f * s)
+            cubicTo(ox + 12.85f * s, oy + 6.99f * s, ox + 13.7f * s, oy + 7.1f * s, ox + 14.5f * s, oy + 7.33f * s)
+            cubicTo(ox + 16.41f * s, oy + 6f * s, ox + 17.25f * s, oy + 6.28f * s, ox + 17.25f * s, oy + 6.28f * s)
+            cubicTo(ox + 17.8f * s, oy + 7.69f * s, ox + 17.45f * s, oy + 8.74f * s, ox + 17.35f * s, oy + 9f * s)
+            cubicTo(ox + 17.99f * s, oy + 9.71f * s, ox + 18.38f * s, oy + 10.63f * s, ox + 18.38f * s, oy + 11.75f * s)
+            cubicTo(ox + 18.38f * s, oy + 15.69f * s, ox + 16.04f * s, oy + 16.56f * s, ox + 13.81f * s, oy + 16.81f * s)
+            cubicTo(ox + 14.17f * s, oy + 17.13f * s, ox + 14.49f * s, oy + 17.75f * s, ox + 14.49f * s, oy + 18.71f * s)
+            lineTo(ox + 14.49f * s, oy + 21.48f * s)
+            cubicTo(ox + 14.49f * s, oy + 21.75f * s, ox + 14.67f * s, oy + 22.08f * s, ox + 15.17f * s, oy + 21.97f * s)
+            cubicTo(ox + 19.14f * s, oy + 20.62f * s, ox + 22f * s, oy + 16.78f * s, ox + 22f * s, oy + 12.25f * s)
+            cubicTo(ox + 22f * s, oy + 6.59f * s, ox + 17.52f * s, oy + 2f * s, ox + 12f * s, oy + 2f * s)
+            close()
+        }
+        drawPath(path = p, color = tint)
     }
 }
 
@@ -4538,7 +4591,7 @@ private fun FullscreenPlayerOverlay(
                             model = track.artworkUrl,
                             contentDescription = track.title,
                             contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxWidth(0.75f).aspectRatio(1f).clip(CircleShape)
+                            modifier = Modifier.fillMaxWidth(0.75f).aspectRatio(1f).clip(RoundedCornerShape(24.dp))
                         )
                         Text(track.title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         Text(track.artist, fontSize = 14.sp, color = Color.White.copy(alpha = 0.7f))
@@ -4560,7 +4613,7 @@ private fun FullscreenPlayerOverlay(
                                 .fillMaxWidth(0.76f)
                                 .aspectRatio(1f)
                                 .scale(artScale)
-                                .clip(CircleShape)
+                                .clip(if (isVinylMode) CircleShape else RoundedCornerShape(24.dp))
                                 .clickable { isVinylMode = !isVinylMode },
                             contentAlignment = Alignment.Center
                         ) {

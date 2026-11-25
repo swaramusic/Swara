@@ -1,9 +1,11 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Swara — Fast & Fluid Music Player</title>
+  <meta name="referrer" content="no-referrer" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://esm.sh; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://api.github.com https://script.google.com https://script.googleusercontent.com; font-src 'self' data:;" />
+  <title>Swara — Fast &amp; Fluid Music Player</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script type="importmap">
     {
@@ -26,9 +28,8 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     const h = React.createElement;
-    // Paste URL Web App Google Apps Script di sini agar saran/komplain masuk realtime ke Google Sheets:
+    // Google Apps Script Web App URL for real-time Google Sheets suggestions:
     const FEEDBACK_SCRIPT_URL = '';
-    const SUPPORT_EMAIL = '12swara90@gmail.com';
     const RELEASES_URL = 'https://github.com/swaramusic/Swara/releases';
 
     function Headphone3D() {
@@ -168,9 +169,9 @@
 
     function App() {
       const [release, setRelease] = useState({ tag: 'v1.0.0', url: RELEASES_URL, label: 'Download APK', hasDirectApk: false });
-      const [showQris, setShowQris] = useState(false);
-      const [showFeedback, setShowFeedback] = useState(false);
-      const [fbType, setFbType] = useState('Saran');
+      const [showSupport, setShowSupport] = useState(false);
+      const [showSuggestions, setShowSuggestions] = useState(false);
+      const [fbType, setFbType] = useState('Feature');
       const [fbContact, setFbContact] = useState('');
       const [fbMsg, setFbMsg] = useState('');
       const [fbStatus, setFbStatus] = useState({ type: '', text: '' });
@@ -185,25 +186,25 @@
             setRelease({
               tag: d.tag_name || 'v1.0.0',
               url: apk?.browser_download_url || d.html_url || RELEASES_URL,
-              label: apk?.name ? `Download APK (${d.tag_name || 'Latest'})` : 'Lihat Rilis APK',
+              label: apk?.name ? `Download APK (${d.tag_name || 'Latest'})` : 'Download APK',
               hasDirectApk: Boolean(apk?.browser_download_url),
             });
           })
           .catch(() => {});
       }, []);
 
-      async function submitFeedback(e) {
+      async function submitSuggestion(e) {
         e.preventDefault();
         if (!fbMsg.trim() || sending) return;
         if (!FEEDBACK_SCRIPT_URL) {
-          const subject = encodeURIComponent(`[Swara ${fbType}] Masukan Pengguna`);
-          const body = encodeURIComponent(`Jenis: ${fbType}\nKontak: ${fbContact || '-'}\n\n${fbMsg}`);
-          window.location.href = `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
-          setFbStatus({ type: 'info', text: 'Membuka aplikasi email untuk mengirim masukan...' });
+          const title = encodeURIComponent(`[Swara ${fbType}] Suggestion`);
+          const body = encodeURIComponent(`Category: ${fbType}\nFrom: ${fbContact || 'Anonymous'}\n\n${fbMsg}`);
+          window.open(`https://github.com/swaramusic/Swara/issues/new?title=${title}&body=${body}`, '_blank', 'noopener,noreferrer');
+          setFbStatus({ type: 'info', text: 'Opening GitHub to submit your suggestion...' });
           return;
         }
         setSending(true);
-        setFbStatus({ type: 'info', text: 'Mengirim masukan...' });
+        setFbStatus({ type: 'info', text: 'Sending...' });
         try {
           await fetch(FEEDBACK_SCRIPT_URL, {
             method: 'POST',
@@ -211,11 +212,11 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ type: fbType, contact: fbContact, message: fbMsg, time: new Date().toISOString() }),
           });
-          setFbStatus({ type: 'success', text: 'Terima kasih! Masukan Anda sudah masuk ke Google Sheets.' });
+          setFbStatus({ type: 'success', text: 'Thank you! Your suggestion has been received.' });
           setFbMsg('');
           setFbContact('');
         } catch {
-          setFbStatus({ type: 'error', text: 'Gagal mengirim. Coba lagi beberapa saat.' });
+          setFbStatus({ type: 'error', text: 'Failed to send. Please try again.' });
         } finally {
           setSending(false);
         }
@@ -227,10 +228,10 @@
         [
           h('header', { key: 'nav', className: 'max-w-6xl w-full mx-auto px-4 sm:px-6 py-5 flex items-center justify-between gap-4' }, [
             h('span', { className: 'font-extrabold tracking-[0.24em] text-base sm:text-lg' }, 'SWARA'),
-            h('nav', { className: 'flex items-center gap-3 sm:gap-6 text-xs sm:text-sm text-white/75' }, [
-              h('button', { onClick: () => setShowFeedback(true), className: 'hover:text-white transition cursor-pointer' }, 'Feedback'),
-              h('button', { onClick: () => setShowQris(true), className: 'hover:text-white transition cursor-pointer' }, 'QRIS'),
-              h('a', { href: 'https://github.com/swaramusic/Swara', target: '_blank', rel: 'noreferrer', className: 'hover:text-white transition' }, 'GitHub'),
+            h('nav', { className: 'flex items-center gap-4 sm:gap-6 text-xs sm:text-sm text-white/75' }, [
+              h('button', { onClick: () => setShowSuggestions(true), className: 'hover:text-white transition cursor-pointer' }, 'Suggestions'),
+              h('button', { onClick: () => setShowSupport(true), className: 'hover:text-white transition cursor-pointer' }, 'Support'),
+              h('a', { href: 'https://github.com/swaramusic/Swara', target: '_blank', rel: 'noopener noreferrer', className: 'hover:text-white transition' }, 'GitHub'),
             ]),
           ]),
 
@@ -242,62 +243,67 @@
               h('div', { className: 'flex flex-col sm:flex-row items-stretch sm:items-center justify-center md:justify-start gap-3 pt-2' }, [
                 h('a', {
                   href: release.url,
-                  ...(release.hasDirectApk ? { download: '' } : { target: '_blank', rel: 'noreferrer' }),
+                  ...(release.hasDirectApk ? { download: '' } : { target: '_blank', rel: 'noopener noreferrer' }),
                   className: 'px-6 py-3.5 rounded-full bg-[#2563EB] hover:bg-[#1D4ED8] font-bold text-sm text-white transition shadow-lg shadow-[#2563EB]/30 text-center',
                 }, release.label),
                 h('button', {
-                  onClick: () => setShowFeedback(true),
+                  onClick: () => setShowSupport(true),
                   className: 'px-6 py-3.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 font-semibold text-sm transition cursor-pointer text-center',
-                }, 'Saran / Komplain'),
+                }, 'Support'),
+                h('button', {
+                  onClick: () => setShowSuggestions(true),
+                  className: 'px-6 py-3.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 font-semibold text-sm text-white/85 transition cursor-pointer text-center',
+                }, 'Suggestions'),
               ]),
             ]),
             h('div', { key: '3dwrap', className: 'order-1 md:order-2 w-full' }, h(Headphone3D)),
           ]),
 
-          h('footer', { key: 'foot', className: 'text-center px-4 py-6 text-xs text-white/45' }, `swaramusic/Swara • ${SUPPORT_EMAIL}`),
+          h('footer', { key: 'foot', className: 'text-center px-4 py-6 text-xs text-white/45' }, 'swaramusic/Swara • Open Source under GPL-3.0'),
 
-          showQris &&
+          showSupport &&
             h(
               'div',
-              { key: 'qrisModal', onClick: () => setShowQris(false), className: 'fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4' },
+              { key: 'supportModal', onClick: () => setShowSupport(false), className: 'fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4' },
               h(
                 'div',
                 { onClick: (e) => e.stopPropagation(), className: 'bg-[#121826] border border-white/15 rounded-3xl p-6 max-w-xs w-full text-center space-y-4 shadow-2xl' },
                 [
-                  h('h2', { className: 'font-bold text-lg' }, 'Support via QRIS'),
+                  h('h2', { className: 'font-bold text-lg' }, 'Support Swara'),
                   h('div', { className: 'bg-white rounded-2xl p-3 mx-auto w-52 h-52 sm:w-56 sm:h-56 flex items-center justify-center' }, [
-                    h('img', { src: './qris-qr.png', alt: 'QRIS', className: 'w-full h-full object-contain' }),
+                    h('img', { src: './qris-qr.png', alt: 'Support Code', className: 'w-full h-full object-contain' }),
                   ]),
-                  h('button', { onClick: () => setShowQris(false), className: 'w-full py-2.5 rounded-full bg-white/10 hover:bg-white/15 text-xs font-semibold text-white/80 cursor-pointer transition' }, 'Tutup'),
+                  h('p', { className: 'text-xs text-white/60' }, 'Scan with GoPay, OVO, DANA, ShopeePay, or Mobile Banking'),
+                  h('button', { onClick: () => setShowSupport(false), className: 'w-full py-2.5 rounded-full bg-white/10 hover:bg-white/15 text-xs font-semibold text-white/80 cursor-pointer transition' }, 'Close'),
                 ]
               )
             ),
 
-          showFeedback &&
+          showSuggestions &&
             h(
               'div',
-              { key: 'fbModal', onClick: () => setShowFeedback(false), className: 'fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4' },
+              { key: 'fbModal', onClick: () => setShowSuggestions(false), className: 'fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4' },
               h(
                 'form',
                 {
-                  onSubmit: submitFeedback,
+                  onSubmit: submitSuggestion,
                   onClick: (e) => e.stopPropagation(),
                   className: 'bg-[#121826] border border-white/15 rounded-3xl p-5 sm:p-6 max-w-md w-full max-h-[90dvh] overflow-y-auto space-y-4 shadow-2xl',
                 },
                 [
                   h('div', { className: 'flex items-start justify-between gap-3' }, [
                     h('div', { className: 'space-y-1' }, [
-                      h('h2', { className: 'font-bold text-lg text-white' }, 'Saran & Komplain'),
-                      h('p', { className: 'text-xs text-white/55' }, 'Bantu kami membuat Swara lebih ringan dan nyaman.'),
+                      h('h2', { className: 'font-bold text-lg text-white' }, 'Suggestions'),
+                      h('p', { className: 'text-xs text-white/55' }, 'Share ideas to help make Swara faster and better.'),
                     ]),
                     h('button', {
                       type: 'button',
-                      onClick: () => setShowFeedback(false),
+                      onClick: () => setShowSuggestions(false),
                       className: 'w-8 h-8 rounded-full bg-white/5 hover:bg-white/15 flex items-center justify-center text-white/60 hover:text-white cursor-pointer transition',
                     }, '✕'),
                   ]),
 
-                  h('div', { className: 'grid grid-cols-3 gap-1.5 p-1 rounded-2xl bg-black/35 border border-white/10' }, ['Saran', 'Komplain', 'Bug'].map((t) =>
+                  h('div', { className: 'grid grid-cols-3 gap-1.5 p-1 rounded-2xl bg-black/35 border border-white/10' }, ['Feature', 'UI / UX', 'Bug'].map((t) =>
                     h('button', {
                       type: 'button',
                       key: t,
@@ -307,24 +313,26 @@
                   )),
 
                   h('div', { className: 'space-y-1.5' }, [
-                    h('label', { className: 'block text-xs font-medium text-white/70' }, 'Nama / Kontak (Opsional)'),
+                    h('label', { className: 'block text-xs font-medium text-white/70' }, 'Name / Handle (Optional)'),
                     h('input', {
                       type: 'text',
+                      maxLength: 80,
                       value: fbContact,
                       onChange: (e) => setFbContact(e.target.value),
-                      placeholder: 'Contoh: Andi / @telegram / email',
+                      placeholder: 'e.g. Alex / @username',
                       className: 'w-full px-3.5 py-2.5 rounded-xl bg-black/35 border border-white/15 text-sm text-white placeholder:text-white/35 outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/25 transition',
                     }),
                   ]),
 
                   h('div', { className: 'space-y-1.5' }, [
-                    h('label', { className: 'block text-xs font-medium text-white/70' }, 'Pesan'),
+                    h('label', { className: 'block text-xs font-medium text-white/70' }, 'Your Suggestion'),
                     h('textarea', {
                       rows: 4,
+                      maxLength: 1500,
                       required: true,
                       value: fbMsg,
                       onChange: (e) => setFbMsg(e.target.value),
-                      placeholder: 'Tulis saran fitur, kendala lag, atau bug yang Anda temukan...',
+                      placeholder: 'Write your feature idea or improvement...',
                       className: 'w-full px-3.5 py-2.5 rounded-xl bg-black/35 border border-white/15 text-sm text-white placeholder:text-white/35 outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/25 transition resize-none',
                     }),
                   ]),
@@ -340,8 +348,8 @@
                   }, fbStatus.text),
 
                   h('div', { className: 'flex items-center justify-end gap-2.5 pt-1' }, [
-                    h('button', { type: 'button', onClick: () => setShowFeedback(false), className: 'px-4 py-2.5 rounded-full text-xs font-medium text-white/65 hover:text-white hover:bg-white/5 cursor-pointer transition' }, 'Batal'),
-                    h('button', { type: 'submit', disabled: sending, className: 'px-6 py-2.5 rounded-full bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-xs font-bold text-white cursor-pointer transition shadow-lg shadow-[#2563EB]/25' }, sending ? 'Mengirim...' : 'Kirim Masukan'),
+                    h('button', { type: 'button', onClick: () => setShowSuggestions(false), className: 'px-4 py-2.5 rounded-full text-xs font-medium text-white/65 hover:text-white hover:bg-white/5 cursor-pointer transition' }, 'Cancel'),
+                    h('button', { type: 'submit', disabled: sending, className: 'px-6 py-2.5 rounded-full bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-xs font-bold text-white cursor-pointer transition shadow-lg shadow-[#2563EB]/25' }, sending ? 'Sending...' : 'Submit'),
                   ]),
                 ]
               )

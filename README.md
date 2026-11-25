@@ -52,22 +52,14 @@ cd apps/android-native
 
 Output APK: `apps/android-native/app/build/outputs/apk/debug/app-debug.apk`
 
-### Desktop
-Requirements: Node.js 20+, pnpm 9+, Rust toolchain.
-
-```bash
-pnpm install
-pnpm build
-```
-
 ---
 
 ## Contributing
 Contributions, bug reports, and feature requests are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
-## Website & Contact
+## Website & Releases
 - Website & Download: https://swaramusic.github.io/Swara/
-- Support Email: `12swara90@gmail.com`
+- Releases: https://github.com/swaramusic/Swara/releases
 
 ## License
 Distributed under the **GNU General Public License v3.0 (GPL-3.0)**.
