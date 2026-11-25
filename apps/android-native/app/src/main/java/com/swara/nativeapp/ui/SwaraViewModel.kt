@@ -47,6 +47,7 @@ data class SwaraUiState(
     val downloadTotal: Int = 0,
     val downloadCurrentTitle: String = "",
     val downloadTreeUri: String = "",
+    val downloadStatusBanner: String? = null,
     val playlists: List<UserPlaylist> = emptyList(),
     val followedArtists: List<String> = emptyList(),
     val openedArtistName: String? = null,
@@ -1156,39 +1157,112 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun notifyDownloadProgress(done: Int, total: Int, title: String, finished: Boolean = false) {
+    private fun notifyDownloadProgress(
+        done: Int,
+        total: Int,
+        title: String,
+        finished: Boolean = false,
+        succeeded: Int = done,
+    ) {
         runCatching {
             val ctx = getApplication<Application>()
             val nm = ctx.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
-            val chId = "swara_downloads"
+            val progChId = "swara_downloads"
+            val doneChId = "swara_downloads_done"
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                if (nm.getNotificationChannel(chId) == null) {
+                if (nm.getNotificationChannel(progChId) == null) {
                     nm.createNotificationChannel(
                         android.app.NotificationChannel(
-                            chId,
-                            "Unduhan Lagu",
+                            progChId,
+                            "Progres Unduhan",
                             android.app.NotificationManager.IMPORTANCE_LOW
                         )
                     )
                 }
+                if (nm.getNotificationChannel(doneChId) == null) {
+                    nm.createNotificationChannel(
+                        android.app.NotificationChannel(
+                            doneChId,
+                            "Unduhan Selesai",
+                            android.app.NotificationManager.IMPORTANCE_DEFAULT
+                        )
+                    )
+                }
             }
-            val builder = androidx.core.app.NotificationCompat.Builder(ctx, chId)
-                .setSmallIcon(android.R.drawable.stat_sys_download)
-                .setOnlyAlertOnce(true)
-                .setOngoing(!finished)
-                .setAutoCancel(finished)
             if (finished) {
-                builder.setSmallIcon(android.R.drawable.stat_sys_download_done)
-                    .setContentTitle("Unduhan selesai")
-                    .setContentText("$done / $total lagu tersimpan")
-                    .setProgress(0, 0, false)
+                nm.cancel(4201)
+                val doneBuilder = androidx.core.app.NotificationCompat.Builder(ctx, doneChId)
+                    .setSmallIcon(
+                        if (succeeded > 0) android.R.drawable.stat_sys_download_done
+                        else android.R.drawable.stat_notify_error
+                    )
+                    .setContentTitle(if (succeeded > 0) "Unduhan selesai" else "Unduhan gagal")
+                    .setContentText(
+                        if (succeeded > 0) "$succeeded / $total lagu berhasil disimpan"
+                        else "Tidak ada lagu yang berhasil diunduh"
+                    )
+                    .setAutoCancel(true)
+                nm.notify(4202, doneBuilder.build())
             } else {
-                builder.setContentTitle("Mengunduh $done / $total lagu")
+                val builder = androidx.core.app.NotificationCompat.Builder(ctx, progChId)
+                    .setSmallIcon(android.R.drawable.stat_sys_download)
+                    .setOnlyAlertOnce(true)
+                    .setOngoing(true)
+                    .setContentTitle("Mengunduh $done / $total lagu")
                     .setContentText(title)
                     .setProgress(total.coerceAtLeast(1), done.coerceIn(0, total), false)
+                nm.notify(4201, builder.build())
             }
-            nm.notify(4201, builder.build())
         }
+    }
+
+    private fun fetchAudioToFile(url: String, dest: java.io.File) {
+        if (!url.startsWith("https://", ignoreCase = true)) {
+            throw IllegalArgumentException("URL unduhan tidak valid")
+        }
+        val vrUa = "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
+        val webUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        val maxBytes = 100L * 1024L * 1024L
+
+        fun tryDownload(ua: String): Int {
+            val req = okhttp3.Request.Builder()
+                .url(url)
+                .header("User-Agent", ua)
+                .build()
+            dlClient.newCall(req).execute().use { res ->
+                if (!res.isSuccessful) return res.code
+                val body = res.body ?: throw Exception("Respons kosong")
+                if (body.contentLength() > maxBytes) throw Exception("Ukuran file terlalu besar")
+                body.byteStream().use { input ->
+                    dest.outputStream().use { output ->
+                        val buf = ByteArray(8192)
+                        var total = 0L
+                        while (true) {
+                            val read = input.read(buf)
+                            if (read == -1) break
+                            total += read
+                            if (total > maxBytes) throw Exception("Ukuran file melebihi batas")
+                            output.write(buf, 0, read)
+                        }
+                    }
+                }
+                if (dest.length() < 1024L) throw Exception("File unduhan kosong")
+                return 200
+            }
+        }
+
+        val code1 = tryDownload(vrUa)
+        if (code1 == 200) return
+        if (code1 == 403) {
+            val code2 = tryDownload(webUa)
+            if (code2 == 200) return
+            throw Exception("HTTP $code2")
+        }
+        throw Exception("HTTP $code1")
+    }
+
+    fun dismissDownloadBanner() {
+        _ui.update { it.copy(downloadStatusBanner = null) }
     }
 
     fun downloadPlaylist(tracks: List<Track>, treeUriOverride: String? = null) {
@@ -1197,82 +1271,94 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
                 t.id !in _ui.value.downloadingIds &&
                 _ui.value.downloadedTracks.none { it.id == t.id }
         }
-        if (targets.isEmpty()) return
+        if (targets.isEmpty()) {
+            _ui.update { it.copy(downloadStatusBanner = "Semua lagu sudah ada di Downloaded") }
+            return
+        }
         val folderUri = treeUriOverride ?: _ui.value.downloadTreeUri
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val pm = getApplication<Application>().getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
+            val wl = runCatching { pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Swara:BatchDownload")?.apply { acquire(30 * 60 * 1000L) } }.getOrNull()
             val totalCount = targets.size
             var doneCount = 0
-            _ui.update {
-                it.copy(
-                    downloadDone = 0,
-                    downloadTotal = totalCount,
-                    downloadCurrentTitle = targets.firstOrNull()?.title.orEmpty()
-                )
-            }
-            notifyDownloadProgress(0, totalCount, targets.firstOrNull()?.title.orEmpty(), finished = false)
-            targets.forEach { track ->
-                val dest = safeDownloadFile(track.id) ?: return@forEach
+            var succeededCount = 0
+            var lastErr = ""
+            try {
                 _ui.update {
                     it.copy(
-                        downloadingIds = it.downloadingIds + track.id,
-                        downloadCurrentTitle = track.title
+                        downloadDone = 0,
+                        downloadTotal = totalCount,
+                        downloadCurrentTitle = targets.firstOrNull()?.title.orEmpty(),
+                        downloadStatusBanner = null
                     )
                 }
-                notifyDownloadProgress(doneCount, totalCount, track.title, finished = false)
-                try {
-                    val url = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality).getOrThrow()
-                    if (!url.startsWith("https://", ignoreCase = true)) throw IllegalArgumentException("Invalid URL")
-                    val req = okhttp3.Request.Builder().url(url).build()
-                    val maxBytes = 100L * 1024L * 1024L
-                    dlClient.newCall(req).execute().use { res ->
-                        if (!res.isSuccessful) throw Exception("HTTP ${res.code}")
-                        val body = res.body ?: throw Exception("Empty body")
-                        if (body.contentLength() > maxBytes) throw Exception("File too large")
-                        body.byteStream().use { input ->
-                            dest.outputStream().use { output ->
-                                val buf = ByteArray(8192)
-                                var total = 0L
-                                while (true) {
-                                    val read = input.read(buf)
-                                    if (read == -1) break
-                                    total += read
-                                    if (total > maxBytes) throw Exception("File limit exceeded")
-                                    output.write(buf, 0, read)
-                                }
-                            }
+                notifyDownloadProgress(0, totalCount, targets.firstOrNull()?.title.orEmpty(), finished = false)
+                targets.forEach { track ->
+                    val dest = safeDownloadFile(track.id) ?: run {
+                        doneCount++
+                        return@forEach
+                    }
+                    _ui.update {
+                        it.copy(
+                            downloadingIds = it.downloadingIds + track.id,
+                            downloadCurrentTitle = track.title
+                        )
+                    }
+                    notifyDownloadProgress(doneCount, totalCount, track.title, finished = false)
+                    try {
+                        val url = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality).getOrThrow()
+                        fetchAudioToFile(url, dest)
+                        copyToUserFolder(track, dest, folderUri)
+                        succeededCount++
+                        doneCount++
+                        val updated = listOf(track) + _ui.value.downloadedTracks.filterNot { it.id == track.id }
+                        _ui.update {
+                            it.copy(
+                                downloadedTracks = updated,
+                                downloadingIds = it.downloadingIds - track.id,
+                                downloadDone = doneCount
+                            )
+                        }
+                        saveTrackList("downloads", updated)
+                    } catch (e: Exception) {
+                        runCatching { dest.delete() }
+                        lastErr = e.message ?: "Error"
+                        doneCount++
+                        _ui.update {
+                            it.copy(
+                                downloadingIds = it.downloadingIds - track.id,
+                                downloadDone = doneCount
+                            )
                         }
                     }
-                    copyToUserFolder(track, dest, folderUri)
-                    doneCount++
-                    val updated = listOf(track) + _ui.value.downloadedTracks.filterNot { it.id == track.id }
-                    _ui.update {
-                        it.copy(
-                            downloadedTracks = updated,
-                            downloadingIds = it.downloadingIds - track.id,
-                            downloadDone = doneCount
-                        )
-                    }
-                    saveTrackList("downloads", updated)
-                } catch (_: Exception) {
-                    runCatching { dest.delete() }
-                    doneCount++
-                    _ui.update {
-                        it.copy(
-                            downloadingIds = it.downloadingIds - track.id,
-                            downloadDone = doneCount
-                        )
-                    }
+                    notifyDownloadProgress(doneCount, totalCount, track.title, finished = false)
                 }
-                notifyDownloadProgress(doneCount, totalCount, track.title, finished = false)
+                notifyDownloadProgress(doneCount, totalCount, "", finished = true, succeeded = succeededCount)
+                val banner = if (succeededCount > 0) {
+                    "Selesai mengunduh $succeededCount / $totalCount lagu"
+                } else {
+                    "Gagal mengunduh ($lastErr)"
+                }
+                _ui.update {
+                    it.copy(
+                        downloadDone = 0,
+                        downloadTotal = 0,
+                        downloadCurrentTitle = "",
+                        downloadStatusBanner = banner
+                    )
+                }
+            } finally {
+                runCatching { if (wl?.isHeld == true) wl.release() }
             }
-            notifyDownloadProgress(doneCount, totalCount, "", finished = true)
-            _ui.update { it.copy(downloadDone = 0, downloadTotal = 0, downloadCurrentTitle = "") }
         }
     }
 
     fun downloadTrack(track: Track, treeUriOverride: String? = null) {
         if (track.browseId.isNotBlank() || track.id in _ui.value.downloadingIds) return
-        if (_ui.value.downloadedTracks.any { it.id == track.id }) return
+        if (_ui.value.downloadedTracks.any { it.id == track.id }) {
+            _ui.update { it.copy(downloadStatusBanner = "${track.title} sudah tersimpan di Downloaded") }
+            return
+        }
         val dest = safeDownloadFile(track.id) ?: return
         val folderUri = treeUriOverride ?: _ui.value.downloadTreeUri
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -1281,48 +1367,29 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
                     downloadingIds = it.downloadingIds + track.id,
                     downloadDone = 0,
                     downloadTotal = 1,
-                    downloadCurrentTitle = track.title
+                    downloadCurrentTitle = track.title,
+                    downloadStatusBanner = null
                 )
             }
             notifyDownloadProgress(0, 1, track.title, finished = false)
             try {
                 val url = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality).getOrThrow()
-                if (!url.startsWith("https://", ignoreCase = true)) {
-                    throw IllegalArgumentException("URL unduhan tidak valid")
-                }
-                val req = okhttp3.Request.Builder().url(url).build()
-                val maxBytes = 100L * 1024L * 1024L
-                dlClient.newCall(req).execute().use { res ->
-                    if (!res.isSuccessful) throw Exception("HTTP ${res.code}")
-                    val body = res.body ?: throw Exception("Respons kosong")
-                    if (body.contentLength() > maxBytes) throw Exception("Ukuran file terlalu besar")
-                    body.byteStream().use { input ->
-                        dest.outputStream().use { output ->
-                            val buf = ByteArray(8192)
-                            var total = 0L
-                            while (true) {
-                                val read = input.read(buf)
-                                if (read == -1) break
-                                total += read
-                                if (total > maxBytes) throw Exception("Ukuran file melebihi batas")
-                                output.write(buf, 0, read)
-                            }
-                        }
-                    }
-                }
+                fetchAudioToFile(url, dest)
                 copyToUserFolder(track, dest, folderUri)
                 val updated = listOf(track) + _ui.value.downloadedTracks.filterNot { it.id == track.id }
                 _ui.update {
                     it.copy(
                         downloadedTracks = updated,
                         downloadingIds = it.downloadingIds - track.id,
-                        downloadDone = 1
+                        downloadDone = 1,
+                        downloadStatusBanner = "Selesai mengunduh: ${track.title}"
                     )
                 }
                 saveTrackList("downloads", updated)
-                notifyDownloadProgress(1, 1, track.title, finished = true)
+                notifyDownloadProgress(1, 1, track.title, finished = true, succeeded = 1)
             } catch (e: Exception) {
                 runCatching { dest.delete() }
+                notifyDownloadProgress(1, 1, track.title, finished = true, succeeded = 0)
                 _ui.update {
                     it.copy(
                         downloadingIds = it.downloadingIds - track.id,

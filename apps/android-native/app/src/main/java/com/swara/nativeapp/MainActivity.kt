@@ -684,7 +684,7 @@ fun SwaraNativeApp(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Default.Update, contentDescription = null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Update, contentDescription = null, tint = TextInk, modifier = Modifier.size(18.dp))
                             Text("Update v$newVer available", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextInk, modifier = Modifier.weight(1f))
                             Surface(
                                 color = primaryColor,
@@ -898,7 +898,22 @@ fun SwaraNativeApp(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (state.downloadTotal > 0) {
-                        val dlProgress = (state.downloadDone.toFloat() / state.downloadTotal.toFloat()).coerceIn(0f, 1f)
+                        val rawProgress = (state.downloadDone.toFloat() / state.downloadTotal.toFloat()).coerceIn(0f, 1f)
+                        val animatedProgress by animateFloatAsState(
+                            targetValue = rawProgress.coerceAtLeast(0.06f),
+                            animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessLow),
+                            label = "dlProgress"
+                        )
+                        val infiniteTransition = rememberInfiniteTransition(label = "dlShimmer")
+                        val shimmerPos by infiniteTransition.animateFloat(
+                            initialValue = -0.35f,
+                            targetValue = 1.35f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(durationMillis = 1250, easing = LinearEasing),
+                                repeatMode = RepeatMode.Restart
+                            ),
+                            label = "dlShimmerPos"
+                        )
                         Surface(
                             color = liquidGlassBg,
                             shape = RoundedCornerShape(18.dp),
@@ -907,13 +922,18 @@ fun SwaraNativeApp(
                         ) {
                             Column(
                                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    CircularProgressIndicator(
+                                        strokeWidth = 2.dp,
+                                        color = TextInk,
+                                        modifier = Modifier.size(14.dp)
+                                    )
                                     Text(
                                         "Mengunduh ${state.downloadDone} / ${state.downloadTotal} lagu",
                                         fontSize = 12.sp,
@@ -926,15 +946,62 @@ fun SwaraNativeApp(
                                         color = TextInk.copy(alpha = 0.65f),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f).padding(start = 10.dp)
+                                        modifier = Modifier.weight(1f)
                                     )
                                 }
-                                LinearProgressIndicator(
-                                    progress = { dlProgress },
-                                    color = primaryColor,
-                                    trackColor = TextInk.copy(alpha = 0.14f),
-                                    modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(50))
-                                )
+                                Canvas(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(50))
+                                ) {
+                                    drawRect(color = TextInk.copy(alpha = 0.14f))
+                                    val fillW = (size.width * animatedProgress).coerceIn(0f, size.width)
+                                    if (fillW > 0f) {
+                                        drawRect(
+                                            color = primaryColor,
+                                            size = androidx.compose.ui.geometry.Size(fillW, size.height)
+                                        )
+                                        val shimmerW = size.width * 0.28f
+                                        val sx = shimmerPos * fillW
+                                        drawRect(
+                                            brush = Brush.horizontalGradient(
+                                                colors = listOf(
+                                                    Color.Transparent,
+                                                    Color.White.copy(alpha = 0.55f),
+                                                    Color.Transparent
+                                                ),
+                                                startX = sx - shimmerW * 0.5f,
+                                                endX = sx + shimmerW * 0.5f
+                                            ),
+                                            size = androidx.compose.ui.geometry.Size(fillW, size.height)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        val bannerMsg = state.downloadStatusBanner
+                        if (bannerMsg != null) {
+                            LaunchedEffect(bannerMsg) {
+                                kotlinx.coroutines.delay(4500)
+                                vm.dismissDownloadBanner()
+                            }
+                            Surface(
+                                color = liquidGlassBg,
+                                shape = RoundedCornerShape(18.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, liquidGlassBorder),
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable { vm.dismissDownloadBanner() }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(Icons.Default.DownloadDone, contentDescription = null, tint = TextInk, modifier = Modifier.size(16.dp))
+                                    Text(bannerMsg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextInk, modifier = Modifier.weight(1f))
+                                    Icon(Icons.Default.Close, contentDescription = "Tutup", tint = TextInk.copy(alpha = 0.7f), modifier = Modifier.size(15.dp))
+                                }
                             }
                         }
                     }
@@ -1632,7 +1699,7 @@ fun SwaraNativeApp(
                                         .padding(14.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Default.QueueMusic, contentDescription = null, tint = primaryColor)
+                                    Icon(Icons.Default.QueueMusic, contentDescription = null, tint = TextInk)
                                     Spacer(Modifier.width(10.dp))
                                     Text(pl.name, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                                     Text("${pl.tracks.size} lagu", fontSize = 12.sp, color = TextInk.copy(alpha = 0.6f))
@@ -1676,7 +1743,7 @@ fun SwaraNativeApp(
                         TextButton(onClick = {
                             vm.createPlaylist(newName)
                             showCreatePlaylistDialog = false
-                        }) { Text("Buat", color = primaryColor) }
+                        }) { Text("Buat", color = TextInk) }
                     },
                     dismissButton = {
                         TextButton(onClick = { showCreatePlaylistDialog = false }) { Text("Batal", color = TextInk) }
@@ -1846,10 +1913,10 @@ private fun HomeScreen(
                                 modifier = Modifier
                                     .size(38.dp)
                                     .clip(RoundedCornerShape(10.dp))
-                                    .background(primaryColor.copy(alpha = 0.22f)),
+                                    .background(Color.White.copy(alpha = 0.08f)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.Favorite, contentDescription = null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.Favorite, contentDescription = null, tint = TextInk, modifier = Modifier.size(20.dp))
                             }
                             Text(
                                 S.liked,
@@ -2204,7 +2271,7 @@ private fun ExploreScreen(
                     .clickable(onClick = onOpenIdentify)
             ) {
                 Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Mic, contentDescription = null, tint = primaryColor, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Mic, contentDescription = null, tint = TextInk, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(S.identifySong, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextInk)
                 }
@@ -2269,7 +2336,7 @@ private fun ExploreScreen(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
-                                            Icon(Icons.Default.History, contentDescription = null, tint = primaryColor, modifier = Modifier.size(14.dp))
+                                            Icon(Icons.Default.History, contentDescription = null, tint = TextInk, modifier = Modifier.size(14.dp))
                                             Text(hist, fontSize = 12.sp, color = TextInk)
                                             Icon(
                                                 Icons.Default.Close,
@@ -2771,8 +2838,8 @@ private fun PlaylistGridCard(pl: UserPlaylist, primaryColor: Color, modifier: Mo
             if (coverModel != null) {
                 AsyncImage(model = coverModel, contentDescription = pl.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             } else {
-                Box(modifier = Modifier.fillMaxSize().background(primaryColor.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = primaryColor, modifier = Modifier.size(42.dp))
+                Box(modifier = Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.08f)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = TextInk, modifier = Modifier.size(42.dp))
                 }
             }
         }
@@ -2793,8 +2860,8 @@ private fun PlaylistListRow(pl: UserPlaylist, primaryColor: Color, onOpen: () ->
             if (coverModel != null) {
                 AsyncImage(model = coverModel, contentDescription = pl.name, contentScale = ContentScale.Crop, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)))
             } else {
-                Box(modifier = Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)).background(primaryColor.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = primaryColor)
+                Box(modifier = Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = 0.08f)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = TextInk)
                 }
             }
             Spacer(Modifier.width(12.dp))
@@ -2903,7 +2970,7 @@ private fun AddArtistRow(primaryColor: Color, onClick: () -> Unit) {
                 modifier = Modifier.size(48.dp).clip(CircleShape).background(TextInk.copy(alpha = 0.1f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.Add, contentDescription = null, tint = primaryColor)
+                Icon(Icons.Default.Add, contentDescription = null, tint = TextInk)
             }
             Spacer(Modifier.width(12.dp))
             Text(S.addArtist, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextInk)
@@ -3144,7 +3211,7 @@ private fun StatCard(value: String, label: String, modifier: Modifier, primaryCo
         modifier = modifier.border(1.dp, TextInk.copy(alpha = 0.06f), RoundedCornerShape(16.dp))
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            Text(value, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = primaryColor)
+            Text(value, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = TextInk)
             Text(label, fontSize = 12.sp, color = TextInk.copy(alpha = 0.65f))
         }
     }
@@ -3922,13 +3989,13 @@ private fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        DiscordGlyphIcon(tint = primaryColor.copy(alpha = 0.6f), modifier = Modifier.size(22.dp))
+                        DiscordGlyphIcon(tint = TextInk.copy(alpha = 0.6f), modifier = Modifier.size(22.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Discord", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextInk.copy(alpha = 0.65f))
                             Text("Profile activity \u00B7 Soon", fontSize = 12.sp, color = TextInk.copy(alpha = 0.45f))
                         }
-                        Surface(color = primaryColor.copy(alpha = 0.16f), shape = RoundedCornerShape(50)) {
-                            Text("Soon", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = primaryColor, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+                        Surface(color = Color.White.copy(alpha = 0.12f), shape = RoundedCornerShape(50)) {
+                            Text("Soon", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextInk, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
                         }
                     }
                     SettingsFlatRow(Icons.Default.Group, ltLabel, primaryColor, onClick = onOpenListenTogether)
@@ -4120,8 +4187,8 @@ private fun SettingsScreen(
                         onSelectCustomAccent(previewArgb)
                         showColorPicker = false
                     },
-                    colors = ButtonDefaults.textButtonColors(contentColor = previewColor)
-                ) { Text("Terapkan", color = previewColor) }
+                    colors = ButtonDefaults.textButtonColors(contentColor = TextInk)
+                ) { Text("Terapkan", color = TextInk) }
             },
             dismissButton = {
                 TextButton(
@@ -4239,8 +4306,8 @@ private fun UserPlaylistOverlay(
                         if (coverModel != null) {
                             AsyncImage(model = coverModel, contentDescription = playlist.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                         } else {
-                            Box(modifier = Modifier.fillMaxSize().background(primaryColor.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
-                                Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = primaryColor, modifier = Modifier.size(56.dp))
+                            Box(modifier = Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.08f)), contentAlignment = Alignment.Center) {
+                                Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = TextInk, modifier = Modifier.size(56.dp))
                             }
                         }
                     }
@@ -4670,7 +4737,7 @@ private fun AboutOverlay(
                 if (isCheckingUpdate) {
                     CircularProgressIndicator(color = primaryColor, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
                 } else {
-                    Icon(Icons.Default.Update, contentDescription = null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                    Icon(Icons.Default.Update, contentDescription = null, tint = TextInk, modifier = Modifier.size(22.dp))
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(S.checkUpdates, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextInk)
@@ -4703,7 +4770,7 @@ private fun AboutOverlay(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    GitHubLogoIcon(tint = primaryColor, modifier = Modifier.size(22.dp))
+                    GitHubLogoIcon(tint = TextInk, modifier = Modifier.size(22.dp))
                     Text("GitHub", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextInk)
                 }
             }
@@ -4717,7 +4784,7 @@ private fun AboutOverlay(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(Icons.Default.Public, contentDescription = "Website", tint = primaryColor, modifier = Modifier.size(22.dp))
+                    Icon(Icons.Default.Public, contentDescription = "Website", tint = TextInk, modifier = Modifier.size(22.dp))
                     Text("Website", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextInk)
                 }
             }
@@ -5226,8 +5293,8 @@ private fun DiscordSettingsOverlay(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Discord Rich Presence", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextInk)
-                    Surface(color = primaryColor.copy(alpha = 0.2f), shape = RoundedCornerShape(50)) {
-                        Text("Soon", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = primaryColor, modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp))
+                    Surface(color = Color.White.copy(alpha = 0.12f), shape = RoundedCornerShape(50)) {
+                        Text("Soon", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextInk, modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp))
                     }
                 }
                 Switch(
@@ -5252,7 +5319,7 @@ private fun DiscordSettingsOverlay(
                     modifier = Modifier.size(40.dp).clip(CircleShape).background(primaryColor.copy(alpha = 0.16f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    DiscordGlyphIcon(tint = primaryColor, modifier = Modifier.size(20.dp))
+                    DiscordGlyphIcon(tint = TextInk, modifier = Modifier.size(20.dp))
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -5347,7 +5414,7 @@ private fun DiscordSettingsOverlay(
                         AsyncImage(model = previewTrack.artworkUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(54.dp).clip(RoundedCornerShape(10.dp)))
                     } else {
                         Box(modifier = Modifier.size(54.dp).clip(RoundedCornerShape(10.dp)).background(primaryColor.copy(alpha = 0.22f)), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.MusicNote, contentDescription = null, tint = primaryColor)
+                            Icon(Icons.Default.MusicNote, contentDescription = null, tint = TextInk)
                         }
                     }
                     Column(modifier = Modifier.weight(1f)) {
@@ -5984,7 +6051,7 @@ private fun IdentifySongSheetContent(
                         Text(t.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(t.artist, fontSize = 12.sp, color = TextInk.copy(alpha = 0.65f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    Icon(Icons.Default.PlayArrow, contentDescription = "Putar", tint = primaryColor)
+                    Icon(Icons.Default.PlayArrow, contentDescription = "Putar", tint = TextInk)
                 }
             }
         }
@@ -6449,7 +6516,7 @@ private fun ArtistSheetContent(
             Spacer(Modifier.weight(1f))
             if (tracks.isNotEmpty()) {
                 IconButton(onClick = { onShufflePlay(tracks) }) {
-                    Icon(Icons.Default.Shuffle, contentDescription = "Acak", tint = primaryColor)
+                    Icon(Icons.Default.Shuffle, contentDescription = "Acak", tint = TextInk)
                 }
                 Surface(
                     color = primaryColor,
