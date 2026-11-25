@@ -151,16 +151,122 @@ class YouTubeMusicClient {
         }
 
     suspend fun fetchPlaylistTracks(browseId: String, hl: String = "id", gl: String = "ID"): List<Track> =
+        fetchPlaylistWithTitle(browseId, hl, gl).second
+
+    suspend fun fetchPlaylistWithTitle(browseId: String, hl: String = "id", gl: String = "ID"): Pair<String, List<Track>> =
         withContext(Dispatchers.IO) {
             val payload = JSONObject().apply {
                 put("browseId", browseId)
                 put("context", webRemixContext(hl, gl))
             }
             val root = postJson("$API/browse?prettyPrint=false", payload)
+            val title = extractPlaylistTitle(root) ?: "Playlist YouTube"
             val found = mutableListOf<Track>()
-            collectTracksRecursive(root, found, limit = 40)
-            found.filter { it.browseId.isBlank() }.distinctBy { it.id }
+
+            val playlistShelf = findPlaylistShelf(root)
+            if (playlistShelf != null) {
+                collectTracksRecursive(playlistShelf.optJSONArray("contents"), found, limit = 500)
+                var token = extractContinuationToken(playlistShelf)
+                var page = 0
+                while (!token.isNullOrBlank() && found.size < 500 && page < 15) {
+                    page++
+                    val contPayload = JSONObject().apply {
+                        put("continuation", token)
+                        put("context", webRemixContext(hl, gl))
+                    }
+                    val contRoot = runCatching { postJson("$API/browse?prettyPrint=false", contPayload) }.getOrNull() ?: break
+                    val contItems = findContinuationItems(contRoot) ?: break
+                    val before = found.size
+                    collectTracksRecursive(contItems, found, limit = 500)
+                    if (found.size == before) break
+                    token = extractContinuationToken(contItems) ?: extractContinuationToken(contRoot)
+                }
+            } else {
+                collectTracksRecursive(root, found, limit = 500)
+            }
+
+            title to found.filter { it.browseId.isBlank() }.distinctBy { it.id }
         }
+
+    private fun extractPlaylistTitle(root: JSONObject): String? {
+        val header = root.optJSONObject("header")
+        val hTitle = extractRunsText(header?.optJSONObject("musicResponsiveHeaderRenderer")?.optJSONObject("title"))
+            ?: extractRunsText(header?.optJSONObject("musicDetailHeaderRenderer")?.optJSONObject("title"))
+            ?: extractRunsText(
+                header?.optJSONObject("musicEditablePlaylistDetailHeaderRenderer")
+                    ?.optJSONObject("header")?.optJSONObject("musicResponsiveHeaderRenderer")?.optJSONObject("title")
+            )
+            ?: extractRunsText(
+                header?.optJSONObject("musicEditablePlaylistDetailHeaderRenderer")
+                    ?.optJSONObject("header")?.optJSONObject("musicDetailHeaderRenderer")?.optJSONObject("title")
+            )
+        if (!hTitle.isNullOrBlank()) return hTitle
+        val mf = root.optJSONObject("microformat")?.optJSONObject("microformatDataRenderer")?.optString("title")
+            ?.removeSuffix(" - YouTube Music")?.trim()
+        return mf?.takeIf { it.isNotBlank() }
+    }
+
+    private fun findPlaylistShelf(node: Any?): JSONObject? {
+        when (node) {
+            is JSONObject -> {
+                node.optJSONObject("musicPlaylistShelfRenderer")?.let { return it }
+                val keys = node.keys()
+                while (keys.hasNext()) {
+                    val found = findPlaylistShelf(node.opt(keys.next()))
+                    if (found != null) return found
+                }
+            }
+            is JSONArray -> {
+                for (i in 0 until node.length()) {
+                    val found = findPlaylistShelf(node.opt(i))
+                    if (found != null) return found
+                }
+            }
+        }
+        return null
+    }
+
+    private fun findContinuationItems(root: JSONObject): JSONArray? {
+        root.optJSONObject("continuationContents")
+            ?.optJSONObject("musicPlaylistShelfContinuation")
+            ?.optJSONArray("contents")?.let { return it }
+        root.optJSONObject("continuationContents")
+            ?.optJSONObject("musicShelfContinuation")
+            ?.optJSONArray("contents")?.let { return it }
+        val actions = root.optJSONArray("onResponseReceivedActions")
+        if (actions != null) {
+            for (i in 0 until actions.length()) {
+                actions.optJSONObject(i)
+                    ?.optJSONObject("appendContinuationItemsAction")
+                    ?.optJSONArray("continuationItems")?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun extractContinuationToken(node: Any?): String? {
+        when (node) {
+            is JSONObject -> {
+                node.optJSONObject("continuationEndpoint")
+                    ?.optJSONObject("continuationCommand")
+                    ?.optString("token")?.takeIf { it.isNotBlank() }?.let { return it }
+                node.optJSONObject("nextContinuationData")
+                    ?.optString("continuation")?.takeIf { it.isNotBlank() }?.let { return it }
+                val keys = node.keys()
+                while (keys.hasNext()) {
+                    val t = extractContinuationToken(node.opt(keys.next()))
+                    if (t != null) return t
+                }
+            }
+            is JSONArray -> {
+                for (i in 0 until node.length()) {
+                    val t = extractContinuationToken(node.opt(i))
+                    if (t != null) return t
+                }
+            }
+        }
+        return null
+    }
 
     suspend fun importPlaylistFromUrl(rawUrl: String, hl: String = "id", gl: String = "ID"): Result<Pair<String, List<Track>>> =
         withContext(Dispatchers.IO) {
@@ -188,7 +294,7 @@ class YouTubeMusicClient {
                     val plTitle = entity.optString("name").ifBlank { entity.optString("title") }.ifBlank { "Playlist Spotify" }
                     val trackList = entity.optJSONArray("trackList") ?: JSONArray()
                     val resolved = mutableListOf<Track>()
-                    for (i in 0 until minOf(trackList.length(), 25)) {
+                    for (i in 0 until minOf(trackList.length(), 100)) {
                         val item = trackList.optJSONObject(i) ?: continue
                         val tTitle = item.optString("title").trim()
                         val tArtist = item.optString("subtitle").replace('\u00A0', ' ').trim()
@@ -207,11 +313,11 @@ class YouTubeMusicClient {
                 if (ytMatch != null) {
                     val rawList = ytMatch.groupValues[1]
                     val browseId = if (rawList.startsWith("VL")) rawList else "VL$rawList"
-                    val tracks = fetchPlaylistTracks(browseId, hl, gl)
+                    val (plTitle, tracks) = fetchPlaylistWithTitle(browseId, hl, gl)
                     return@withContext if (tracks.isEmpty()) {
                         Result.failure(Exception("Playlist YouTube kosong atau privat"))
                     } else {
-                        Result.success("Playlist YouTube" to tracks)
+                        Result.success(plTitle to tracks)
                     }
                 }
 
@@ -493,6 +599,14 @@ class YouTubeMusicClient {
         val videoId = r.optString("videoId").takeIf { it.isNotBlank() }
             ?: r.optJSONObject("playlistItemData")?.optString("videoId")?.takeIf { it.isNotBlank() }
             ?: r.optJSONObject("navigationEndpoint")
+                ?.optJSONObject("watchEndpoint")
+                ?.optString("videoId")
+                ?.takeIf { it.isNotBlank() }
+            ?: r.optJSONObject("overlay")
+                ?.optJSONObject("musicItemThumbnailOverlayRenderer")
+                ?.optJSONObject("content")
+                ?.optJSONObject("musicPlayButtonRenderer")
+                ?.optJSONObject("playNavigationEndpoint")
                 ?.optJSONObject("watchEndpoint")
                 ?.optString("videoId")
                 ?.takeIf { it.isNotBlank() }
