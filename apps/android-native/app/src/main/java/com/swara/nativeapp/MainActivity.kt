@@ -581,6 +581,32 @@ fun SwaraNativeApp(
     val onOpenArtistCb: (String) -> Unit = remember(vm) { { vm.openArtist(it) } }
 
     var isBarCollapsed by remember { mutableStateOf(false) }
+    val appCtx = androidx.compose.ui.platform.LocalContext.current
+    var availableUpdate by remember { mutableStateOf<Pair<String, String>?>(null) }
+    LaunchedEffect(Unit) {
+        val ver = runCatching {
+            appCtx.packageManager.getPackageInfo(appCtx.packageName, 0).versionName ?: "1.0.0"
+        }.getOrDefault("1.0.0")
+        val found = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val client = okhttp3.OkHttpClient()
+                val req = okhttp3.Request.Builder()
+                    .url("https://api.github.com/repos/swaramusic/Swara/releases/latest")
+                    .header("Accept", "application/vnd.github+json")
+                    .build()
+                client.newCall(req).execute().use { r ->
+                    if (!r.isSuccessful) null
+                    else {
+                        val json = org.json.JSONObject(r.body?.string().orEmpty())
+                        val tag = json.optString("tag_name").removePrefix("v").trim()
+                        val html = json.optString("html_url").ifBlank { "https://github.com/swaramusic/Swara/releases" }
+                        if (tag.isNotBlank() && tag != ver && html.startsWith("https://")) tag to html else null
+                    }
+                }
+            }.getOrNull()
+        }
+        if (found != null) availableUpdate = found
+    }
     val barScrollConn = remember {
         object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
             private var dyAcc = 0f
@@ -623,6 +649,35 @@ fun SwaraNativeApp(
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
+                availableUpdate?.let { (newVer, dlUrl) ->
+                    Surface(
+                        color = primaryColor.copy(alpha = 0.22f),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Update, contentDescription = null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                            Text("Update v$newVer available", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextInk, modifier = Modifier.weight(1f))
+                            Surface(
+                                color = primaryColor,
+                                shape = RoundedCornerShape(50),
+                                modifier = Modifier.clip(RoundedCornerShape(50)).clickable {
+                                    runCatching { appCtx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(dlUrl))) }
+                                }
+                            ) {
+                                Text("Update", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+                            }
+                            IconButton(onClick = { availableUpdate = null }, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = TextInk, modifier = Modifier.size(15.dp))
+                            }
+                        }
+                    }
+                }
                 state.errorMessage?.let { msg ->
                     Surface(
                         color = Color(0xFF4A1822),
@@ -4603,74 +4658,16 @@ private fun FullscreenPlayerOverlay(
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 when (activeTab) {
                     PlayerTab.SONG -> {
-                        val artScale by animateFloatAsState(
-                            targetValue = if (isPlaying) 1f else 0.94f,
-                            animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMediumLow),
-                            label = "artScale"
-                        )
-                        Box(
+                        AsyncImage(
+                            model = track.artworkUrl,
+                            contentDescription = track.title,
+                            contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .fillMaxWidth(0.76f)
                                 .aspectRatio(1f)
-                                .scale(artScale)
-                                .clip(if (isVinylMode) CircleShape else RoundedCornerShape(24.dp))
-                                .clickable { isVinylMode = !isVinylMode },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            AnimatedContent(
-                                targetState = isVinylMode,
-                                transitionSpec = {
-                                    (scaleIn(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(tween(220))) togetherWith
-                                        (scaleOut(tween(180)) + fadeOut(tween(180)))
-                                },
-                                label = "vinylToggle"
-                            ) { vinyl ->
-                                if (vinyl) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .graphicsLayer { rotationZ = vinylRotation.value % 360f }
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF101218)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Canvas(modifier = Modifier.fillMaxSize()) {
-                                            val r = size.minDimension / 2f
-                                            listOf(0.94f, 0.84f, 0.74f, 0.64f).forEach { frac ->
-                                                drawCircle(
-                                                    color = Color.White.copy(alpha = 0.08f),
-                                                    radius = r * frac,
-                                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f)
-                                                )
-                                            }
-                                        }
-                                        AsyncImage(
-                                            model = track.artworkUrl,
-                                            contentDescription = track.title,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize(0.54f).clip(CircleShape).border(2.dp, Color.White.copy(alpha = 0.18f), CircleShape)
-                                        )
-                                        Box(
-                                            modifier = Modifier
-                                                .size(18.dp)
-                                                .clip(CircleShape)
-                                                .background(BgDark)
-                                                .border(2.dp, Color.White.copy(alpha = 0.35f), CircleShape)
-                                        )
-                                    }
-                                } else {
-                                    AsyncImage(
-                                        model = track.artworkUrl,
-                                        contentDescription = track.title,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .shadow(22.dp, CircleShape, ambientColor = primaryColor, spotColor = primaryColor)
-                                            .clip(CircleShape)
-                                    )
-                                }
-                            }
-                        }
+                                .shadow(20.dp, RoundedCornerShape(24.dp), ambientColor = primaryColor, spotColor = primaryColor)
+                                .clip(RoundedCornerShape(24.dp))
+                        )
                     }
                     PlayerTab.LYRICS -> {
                         LyricsView(
