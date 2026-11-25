@@ -1224,39 +1224,75 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
         val vrUa = "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
         val webUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         val maxBytes = 100L * 1024L * 1024L
+        val chunkSize = 512L * 1024L
 
-        fun tryDownload(ua: String): Int {
-            val req = okhttp3.Request.Builder()
-                .url(url)
-                .header("User-Agent", ua)
-                .build()
-            dlClient.newCall(req).execute().use { res ->
-                if (!res.isSuccessful) return res.code
-                val body = res.body ?: throw Exception("Respons kosong")
-                if (body.contentLength() > maxBytes) throw Exception("Ukuran file terlalu besar")
-                body.byteStream().use { input ->
-                    dest.outputStream().use { output ->
-                        val buf = ByteArray(8192)
-                        var total = 0L
-                        while (true) {
-                            val read = input.read(buf)
-                            if (read == -1) break
-                            total += read
-                            if (total > maxBytes) throw Exception("Ukuran file melebihi batas")
-                            output.write(buf, 0, read)
+        fun tryChunkedDownload(ua: String): Int {
+            var offset = 0L
+            var totalSize = -1L
+            dest.outputStream().use { output ->
+                while (true) {
+                    val endByte = if (totalSize > 0) minOf(offset + chunkSize - 1, totalSize - 1) else offset + chunkSize - 1
+                    val req = okhttp3.Request.Builder()
+                        .url(url)
+                        .header("User-Agent", ua)
+                        .header("Range", "bytes=$offset-$endByte")
+                        .build()
+                    dlClient.newCall(req).execute().use { res ->
+                        if (res.code == 403 && offset == 0L) return 403
+                        if (!res.isSuccessful && res.code != 206) return res.code
+                        val body = res.body ?: throw Exception("Respons kosong")
+                        if (res.code == 200) {
+                            if (body.contentLength() > maxBytes) throw Exception("Ukuran file terlalu besar")
+                            body.byteStream().use { input ->
+                                val buf = ByteArray(8192)
+                                var total = 0L
+                                while (true) {
+                                    val read = input.read(buf)
+                                    if (read == -1) break
+                                    total += read
+                                    if (total > maxBytes) throw Exception("Ukuran file melebihi batas")
+                                    output.write(buf, 0, read)
+                                }
+                            }
+                            return 200
+                        }
+                        val cr = res.header("Content-Range").orEmpty()
+                        val parsedTotal = cr.substringAfter('/', "").toLongOrNull()
+                        if (parsedTotal != null && parsedTotal > 0L) {
+                            if (parsedTotal > maxBytes) throw Exception("Ukuran file terlalu besar")
+                            totalSize = parsedTotal
+                        }
+                        var chunkWritten = 0L
+                        body.byteStream().use { input ->
+                            val buf = ByteArray(8192)
+                            while (true) {
+                                val read = input.read(buf)
+                                if (read == -1) break
+                                chunkWritten += read
+                                if (offset + chunkWritten > maxBytes) throw Exception("Ukuran file melebihi batas")
+                                output.write(buf, 0, read)
+                            }
+                        }
+                        offset += chunkWritten
+                        if (chunkWritten == 0L || (totalSize > 0 && offset >= totalSize)) {
+                            return 200
                         }
                     }
                 }
-                if (dest.length() < 1024L) throw Exception("File unduhan kosong")
-                return 200
             }
         }
 
-        val code1 = tryDownload(vrUa)
-        if (code1 == 200) return
+        val code1 = tryChunkedDownload(vrUa)
+        if (code1 == 200) {
+            if (dest.length() < 1024L) throw Exception("File unduhan kosong")
+            return
+        }
         if (code1 == 403) {
-            val code2 = tryDownload(webUa)
-            if (code2 == 200) return
+            val code2 = tryChunkedDownload(webUa)
+            if (code2 == 200) {
+                if (dest.length() < 1024L) throw Exception("File unduhan kosong")
+                return
+            }
             throw Exception("HTTP $code2")
         }
         throw Exception("HTTP $code1")
