@@ -4658,16 +4658,58 @@ private fun FullscreenPlayerOverlay(
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 when (activeTab) {
                     PlayerTab.SONG -> {
-                        AsyncImage(
-                            model = track.artworkUrl,
-                            contentDescription = track.title,
-                            contentScale = ContentScale.Crop,
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth(0.76f)
                                 .aspectRatio(1f)
-                                .shadow(20.dp, RoundedCornerShape(24.dp), ambientColor = primaryColor, spotColor = primaryColor)
-                                .clip(RoundedCornerShape(24.dp))
-                        )
+                                .clickable { isVinylMode = !isVinylMode },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isVinylMode) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer { rotationZ = vinylRotation.value % 360f }
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF101218)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Canvas(modifier = Modifier.fillMaxSize()) {
+                                        val r = size.minDimension / 2f
+                                        listOf(0.94f, 0.84f, 0.74f, 0.64f).forEach { frac ->
+                                            drawCircle(
+                                                color = Color.White.copy(alpha = 0.08f),
+                                                radius = r * frac,
+                                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f)
+                                            )
+                                        }
+                                    }
+                                    AsyncImage(
+                                        model = track.artworkUrl,
+                                        contentDescription = track.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize(0.54f).clip(CircleShape).border(2.dp, Color.White.copy(alpha = 0.18f), CircleShape)
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .clip(CircleShape)
+                                            .background(BgDark)
+                                            .border(2.dp, Color.White.copy(alpha = 0.35f), CircleShape)
+                                    )
+                                }
+                            } else {
+                                AsyncImage(
+                                    model = track.artworkUrl,
+                                    contentDescription = track.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(RoundedCornerShape(24.dp))
+                                        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(24.dp))
+                                )
+                            }
+                        }
                     }
                     PlayerTab.LYRICS -> {
                         LyricsView(

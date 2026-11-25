@@ -75,7 +75,7 @@ class SwaraPlaybackService : MediaSessionService() {
     private var artistView: TextView? = null
     private var elapsedView: TextView? = null
     private var remainView: TextView? = null
-    private var progressBar: ProgressBar? = null
+    private var squigglyProgressView: SquigglyIslandProgressView? = null
     private var playPauseIcon: ImageView? = null
     private val waveBars = mutableListOf<View>()
     private var waveStep = 0
@@ -652,7 +652,7 @@ class SwaraPlaybackService : MediaSessionService() {
             artistView = null
             elapsedView = null
             remainView = null
-            progressBar = null
+            squigglyProgressView = null
             playPauseIcon = null
         } else {
             root.setPadding(dp(18), dp(16), dp(18), dp(14))
@@ -730,26 +730,10 @@ class SwaraPlaybackService : MediaSessionService() {
             }
             elapsedView = tvElapsed
 
-            val pb = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-                max = 1000
-                val trackBg = GradientDrawable().apply {
-                    setColor(Color.parseColor("#33FFFFFF"))
-                    cornerRadius = dp(4).toFloat()
-                }
-                val progFg = ClipDrawable(
-                    GradientDrawable().apply {
-                        setColor(accentColorInt)
-                        cornerRadius = dp(4).toFloat()
-                    },
-                    Gravity.START,
-                    ClipDrawable.HORIZONTAL
-                )
-                progressDrawable = LayerDrawable(arrayOf(trackBg, progFg)).apply {
-                    setId(0, android.R.id.background)
-                    setId(1, android.R.id.progress)
-                }
+            val pb = SquigglyIslandProgressView(this).apply {
+                setAccentColor(accentColorInt)
             }
-            progressBar = pb
+            squigglyProgressView = pb
 
             val tvRemain = TextView(this).apply {
                 setTextColor(Color.parseColor("#99FFFFFF"))
@@ -759,7 +743,7 @@ class SwaraPlaybackService : MediaSessionService() {
             remainView = tvRemain
 
             progRow.addView(tvElapsed)
-            progRow.addView(pb, LinearLayout.LayoutParams(0, dp(4), 1f).apply {
+            progRow.addView(pb, LinearLayout.LayoutParams(0, dp(18), 1f).apply {
                 marginStart = dp(10)
                 marginEnd = dp(10)
             })
@@ -832,7 +816,8 @@ class SwaraPlaybackService : MediaSessionService() {
         val dur = exo.duration.coerceAtLeast(0L)
         elapsedView?.text = fmt(pos)
         remainView?.text = if (dur > pos) "-${fmt(dur - pos)}" else "-0:00"
-        progressBar?.progress = if (dur > 0) ((pos * 1000L) / dur).toInt().coerceIn(0, 1000) else 0
+        val frac = if (dur > 0) (pos.toFloat() / dur.toFloat()).coerceIn(0f, 1f) else 0f
+        squigglyProgressView?.updateState(frac, exo.isPlaying)
     }
 
     private fun fmt(ms: Long): String {
@@ -855,7 +840,7 @@ class SwaraPlaybackService : MediaSessionService() {
         artistView = null
         elapsedView = null
         remainView = null
-        progressBar = null
+        squigglyProgressView = null
         playPauseIcon = null
     }
 
@@ -889,5 +874,78 @@ class SwaraPlaybackService : MediaSessionService() {
         mediaSession = null
         player = null
         super.onDestroy()
+    }
+}
+
+private class SquigglyIslandProgressView(ctx: android.content.Context) : View(ctx) {
+    private var fraction = 0f
+    private var playing = false
+    private var phase = 0f
+    private var lastFrameMs = 0L
+    private val density = ctx.resources.displayMetrics.density
+
+    private val trackPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#38FFFFFF")
+        strokeWidth = 2.5f * density
+        strokeCap = android.graphics.Paint.Cap.ROUND
+        style = android.graphics.Paint.Style.STROKE
+    }
+    private val activePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#2563EB")
+        strokeWidth = 3f * density
+        strokeCap = android.graphics.Paint.Cap.ROUND
+        style = android.graphics.Paint.Style.STROKE
+    }
+    private val thumbPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = android.graphics.Paint.Style.FILL
+    }
+    private val wavePath = android.graphics.Path()
+
+    fun setAccentColor(color: Int) {
+        activePaint.color = color
+        invalidate()
+    }
+
+    fun updateState(newFraction: Float, isPlaying: Boolean) {
+        fraction = newFraction.coerceIn(0f, 1f)
+        val wasPlaying = playing
+        playing = isPlaying
+        if (playing && !wasPlaying) lastFrameMs = android.os.SystemClock.uptimeMillis()
+        invalidate()
+    }
+
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        super.onDraw(canvas)
+        val w = width.toFloat()
+        val cy = height / 2f
+        if (w <= 0f) return
+        val thumbX = fraction * w
+
+        canvas.drawLine(thumbX, cy, w, cy, trackPaint)
+
+        if (thumbX > 2f) {
+            if (playing) {
+                val now = android.os.SystemClock.uptimeMillis()
+                val dt = if (lastFrameMs > 0L) ((now - lastFrameMs).coerceIn(0L, 64L)) / 1000f else 0.016f
+                lastFrameMs = now
+                phase = (phase + dt * 5.7f) % (2f * Math.PI.toFloat())
+            }
+            val amp = if (playing) 3.2f * density else 0f
+            val freq = 0.055f / density * 3f
+            wavePath.reset()
+            wavePath.moveTo(0f, cy + kotlin.math.sin(phase.toDouble()).toFloat() * amp)
+            var x = 0f
+            val step = (3f * density).coerceAtLeast(2f)
+            while (x < thumbX) {
+                x = (x + step).coerceAtMost(thumbX)
+                val y = cy + kotlin.math.sin((x * freq + phase).toDouble()).toFloat() * amp
+                wavePath.lineTo(x, y)
+            }
+            canvas.drawPath(wavePath, activePaint)
+        }
+
+        canvas.drawCircle(thumbX.coerceIn(3f * density, w - 3f * density), cy, 4f * density, thumbPaint)
+        if (playing) postInvalidateOnAnimation()
     }
 }
