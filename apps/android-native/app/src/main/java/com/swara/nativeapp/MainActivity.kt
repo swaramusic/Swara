@@ -884,14 +884,14 @@ fun SwaraNativeApp(
                             border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(58.dp * (1f - collapseFraction))
+                                .height(64.dp * (1f - collapseFraction))
                                 .graphicsLayer {
                                     alpha = (1f - collapseFraction * 1.25f).coerceIn(0f, 1f)
                                     translationY = 24f * collapseFraction
                                 }
                         ) {
                             Row(
-                                modifier = Modifier.fillMaxSize().padding(vertical = 6.dp, horizontal = 4.dp),
+                                modifier = Modifier.fillMaxSize().padding(vertical = 2.dp, horizontal = 4.dp),
                                 horizontalArrangement = Arrangement.SpaceAround,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -916,12 +916,13 @@ fun SwaraNativeApp(
                                             .clip(RoundedCornerShape(22.dp))
                                             .background(if (selected) TextInk.copy(alpha = 0.14f) else Color.Transparent)
                                             .clickable { activeTab = tab; isBarCollapsed = false }
-                                            .padding(horizontal = 2.dp, vertical = 5.dp)
+                                            .padding(horizontal = 2.dp, vertical = 4.dp)
                                     ) {
                                         Icon(icon, contentDescription = navTabLabel(tab), tint = if (selected) primaryColor else TextInk.copy(alpha = 0.65f), modifier = Modifier.size(20.dp).scale(iconScale))
                                         Text(
                                             navTabLabel(tab),
                                             fontSize = 10.sp,
+                                            lineHeight = 12.sp,
                                             maxLines = 1,
                                             softWrap = false,
                                             color = if (selected) TextInk else TextInk.copy(alpha = 0.65f)
@@ -3893,26 +3894,6 @@ private fun AboutOverlay(
             }
         }
 
-        // Support / Buy me a coffee + QRIS
-        Surface(
-            color = primaryColor.copy(alpha = 0.18f),
-            shape = RoundedCornerShape(18.dp),
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable { showSupportSheet = true }
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Icon(Icons.Default.Favorite, contentDescription = null, tint = primaryColor, modifier = Modifier.size(22.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Buy me a coffee / Support", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextInk)
-                    Text("QRIS, Saweria & dukungan pengembangan Swara", fontSize = 12.sp, color = TextInk.copy(alpha = 0.68f))
-                }
-                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextInk.copy(alpha = 0.55f))
-            }
-        }
-
         Spacer(Modifier.height(6.dp))
         Text(
             "Swara is licensed under GNU GPL-3.0",
@@ -3925,6 +3906,7 @@ private fun AboutOverlay(
     }
 
     if (showSupportSheet) {
+        var qrisSaved by remember { mutableStateOf(false) }
         ModalBottomSheet(
             onDismissRequest = { showSupportSheet = false },
             containerColor = CardDark,
@@ -3932,32 +3914,50 @@ private fun AboutOverlay(
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("Support Swara", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextInk)
+                Text("Sponsor Developer", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextInk)
+                Surface(
+                    color = Color.White,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.size(210.dp)
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.swara_qris_qr),
+                        contentDescription = "QRIS",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize().padding(10.dp)
+                    )
+                }
                 Text(
-                    "Dukung pengembangan Swara lewat QRIS (GoPay, OVO, DANA, ShopeePay, Mobile Banking) atau platform donasi:",
-                    fontSize = 13.sp,
-                    color = TextInk.copy(alpha = 0.7f)
+                    "Scan QRIS via GoPay, OVO, DANA, ShopeePay, atau Mobile Banking",
+                    fontSize = 12.sp,
+                    color = TextInk.copy(alpha = 0.68f),
+                    textAlign = TextAlign.Center
                 )
                 FilledTonalButton(
-                    onClick = { showSupportSheet = false; openUrl("https://swaramusic.github.io/Swara/#support") },
+                    onClick = {
+                        runCatching {
+                            val bmp = android.graphics.BitmapFactory.decodeResource(ctx.resources, R.drawable.swara_qris_qr)
+                            val vals = android.content.ContentValues().apply {
+                                put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "swara_qris.png")
+                                put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png")
+                            }
+                            val uri = ctx.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, vals)
+                            if (uri != null) {
+                                ctx.contentResolver.openOutputStream(uri)?.use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                                qrisSaved = true
+                            }
+                        }
+                    },
                     shape = RoundedCornerShape(50),
                     colors = ButtonDefaults.filledTonalButtonColors(containerColor = primaryColor, contentColor = Color.White),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Default.QrCode2, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Buka QRIS (Web Support)", fontWeight = FontWeight.Bold)
-                }
-                OutlinedButton(
-                    onClick = { showSupportSheet = false; openUrl("https://saweria.co/tirtadhi") },
-                    shape = RoundedCornerShape(50),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, TextInk.copy(alpha = 0.22f)),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextInk),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Saweria (QRIS / E-Wallet)", fontWeight = FontWeight.SemiBold)
+                    Text(if (qrisSaved) "QRIS Tersimpan di Galeri" else "Simpan Gambar QRIS", fontWeight = FontWeight.Bold)
                 }
                 OutlinedButton(
                     onClick = { showSupportSheet = false; openUrl("https://buymeacoffee.com/tirtadhi") },
@@ -4004,13 +4004,15 @@ private fun AboutOverlay(
                     Text("Open GitHub Profile", fontWeight = FontWeight.Bold)
                 }
                 OutlinedButton(
-                    onClick = { showDevSheet = false; openUrl("https://github.com/swaramusic/Swara") },
+                    onClick = { showDevSheet = false; showSupportSheet = true },
                     shape = RoundedCornerShape(50),
                     border = androidx.compose.foundation.BorderStroke(1.dp, TextInk.copy(alpha = 0.22f)),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = TextInk),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Open Swara Organization", fontWeight = FontWeight.SemiBold)
+                    Icon(Icons.Default.QrCode2, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Sponsor developer", fontWeight = FontWeight.SemiBold)
                 }
                 Spacer(Modifier.height(12.dp))
             }
