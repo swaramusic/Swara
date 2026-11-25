@@ -3,138 +3,178 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Swara</title>
+  <title>Swara — Fast & Fluid Music Player</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.3.1",
+        "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+        "three": "https://esm.sh/three@0.170.0",
+        "three/addons/": "https://esm.sh/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
 </head>
 <body class="bg-[#0B0F17] text-[#F2F5FA] antialiased selection:bg-[#2563EB] selection:text-white overflow-x-hidden">
   <div id="root"></div>
 
   <script type="module">
-    import React, { useEffect, useRef, useState } from 'https://esm.sh/react@18.3.1';
-    import { createRoot } from 'https://esm.sh/react-dom@18.3.1/client';
-    import * as THREE from 'https://esm.sh/three@0.170.0';
-    import { OrbitControls } from 'https://esm.sh/three@0.170.0/examples/jsm/controls/OrbitControls.js';
+    import React, { useEffect, useRef, useState } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     const h = React.createElement;
-    // Paste URL Web App Google Apps Script Anda di sini agar saran/komplain masuk realtime ke Google Sheets:
+    // Paste URL Web App Google Apps Script di sini agar saran/komplain masuk realtime ke Google Sheets:
     const FEEDBACK_SCRIPT_URL = '';
     const SUPPORT_EMAIL = '12swara90@gmail.com';
+    const RELEASES_URL = 'https://github.com/swaramusic/Swara/releases';
 
     function Headphone3D() {
       const mountRef = useRef(null);
+      const [webglError, setWebglError] = useState(false);
 
       useEffect(() => {
         const container = mountRef.current;
         if (!container) return;
 
-        const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(42, container.clientWidth / container.clientHeight, 0.1, 100);
-        camera.position.set(0, 0.4, 5.2);
+        let renderer, controls, raf = 0, observer;
+        try {
+          const width = Math.max(260, container.clientWidth || 320);
+          const height = Math.max(260, container.clientHeight || 340);
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        renderer.setSize(container.clientWidth, container.clientHeight);
-        container.appendChild(renderer.domElement);
+          const scene = new THREE.Scene();
+          const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 100);
+          camera.position.set(0, 0.35, 5.1);
 
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableZoom = false;
-        controls.enablePan = false;
-        controls.enableDamping = true;
-        controls.autoRotate = true;
-        controls.autoRotateSpeed = 1.6;
+          renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+          renderer.setSize(width, height);
+          container.innerHTML = '';
+          container.appendChild(renderer.domElement);
 
-        scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-        const keyLight = new THREE.DirectionalLight(0x60a5fa, 2.4);
-        keyLight.position.set(4, 5, 5);
-        scene.add(keyLight);
-        const rimLight = new THREE.DirectionalLight(0x1c9b90, 2.0);
-        rimLight.position.set(-5, -2, -3);
-        scene.add(rimLight);
+          controls = new OrbitControls(camera, renderer.domElement);
+          controls.enableZoom = false;
+          controls.enablePan = false;
+          controls.enableDamping = true;
+          controls.dampingFactor = 0.06;
+          controls.autoRotate = true;
+          controls.autoRotateSpeed = 1.7;
 
-        const hp = new THREE.Group();
-        const matteDark = new THREE.MeshStandardMaterial({ color: 0x161d2f, roughness: 0.35, metalness: 0.65 });
-        const cushionMat = new THREE.MeshStandardMaterial({ color: 0x0f1420, roughness: 0.85, metalness: 0.1 });
-        const accentMat = new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.25, metalness: 0.8, emissive: 0x1d4ed8, emissiveIntensity: 0.35 });
-        const metalMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.2, metalness: 0.9 });
+          scene.add(new THREE.AmbientLight(0xffffff, 1.05));
+          const keyLight = new THREE.DirectionalLight(0x60a5fa, 2.6);
+          keyLight.position.set(4, 5, 5);
+          scene.add(keyLight);
+          const rimLight = new THREE.DirectionalLight(0x1c9b90, 2.2);
+          rimLight.position.set(-5, -2, -3);
+          scene.add(rimLight);
+          const topGlow = new THREE.PointLight(0x3b82f6, 1.4, 10);
+          topGlow.position.set(0, 2.5, 2);
+          scene.add(topGlow);
 
-        const band = new THREE.Mesh(new THREE.TorusGeometry(1.35, 0.11, 24, 64, Math.PI * 1.06), matteDark);
-        band.rotation.z = -Math.PI * 0.03;
-        band.position.y = 0.28;
-        hp.add(band);
+          const hp = new THREE.Group();
+          const matteDark = new THREE.MeshStandardMaterial({ color: 0x172036, roughness: 0.32, metalness: 0.68 });
+          const cushionMat = new THREE.MeshStandardMaterial({ color: 0x0f1523, roughness: 0.85, metalness: 0.12 });
+          const accentMat = new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.22, metalness: 0.8, emissive: 0x1d4ed8, emissiveIntensity: 0.45 });
+          const metalMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.18, metalness: 0.92 });
 
-        const pad = new THREE.Mesh(new THREE.TorusGeometry(1.23, 0.075, 16, 48, Math.PI * 0.72), cushionMat);
-        pad.rotation.z = Math.PI * 0.14;
-        pad.position.y = 0.28;
-        hp.add(pad);
+          const band = new THREE.Mesh(new THREE.TorusGeometry(1.35, 0.11, 24, 64, Math.PI * 1.06), matteDark);
+          band.rotation.z = -Math.PI * 0.03;
+          band.position.y = 0.28;
+          hp.add(band);
 
-        [-1, 1].forEach((side) => {
-          const cupGroup = new THREE.Group();
-          cupGroup.position.set(side * 1.38, -0.35, 0);
-          cupGroup.rotation.z = side * -0.14;
+          const pad = new THREE.Mesh(new THREE.TorusGeometry(1.23, 0.075, 16, 48, Math.PI * 0.72), cushionMat);
+          pad.rotation.z = Math.PI * 0.14;
+          pad.position.y = 0.28;
+          hp.add(pad);
 
-          const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.62, 16), metalMat);
-          stem.position.set(side * 0.04, 0.45, 0);
-          cupGroup.add(stem);
+          [-1, 1].forEach((side) => {
+            const cupGroup = new THREE.Group();
+            cupGroup.position.set(side * 1.38, -0.35, 0);
+            cupGroup.rotation.z = side * -0.14;
 
-          const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.56, 0.62, 0.34, 36), matteDark);
-          shell.rotation.z = Math.PI / 2;
-          cupGroup.add(shell);
+            const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.62, 16), metalMat);
+            stem.position.set(side * 0.04, 0.45, 0);
+            cupGroup.add(stem);
 
-          const ring = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.035, 16, 48), accentMat);
-          ring.rotation.y = Math.PI / 2;
-          ring.position.x = side * 0.18;
-          cupGroup.add(ring);
+            const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.56, 0.62, 0.34, 36), matteDark);
+            shell.rotation.z = Math.PI / 2;
+            cupGroup.add(shell);
 
-          const cushion = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.17, 20, 48), cushionMat);
-          cushion.rotation.y = Math.PI / 2;
-          cushion.position.x = -side * 0.22;
-          cupGroup.add(cushion);
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.035, 16, 48), accentMat);
+            ring.rotation.y = Math.PI / 2;
+            ring.position.x = side * 0.18;
+            cupGroup.add(ring);
 
-          hp.add(cupGroup);
-        });
+            const cushion = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.17, 20, 48), cushionMat);
+            cushion.rotation.y = Math.PI / 2;
+            cushion.position.x = -side * 0.22;
+            cupGroup.add(cushion);
 
-        hp.rotation.x = 0.18;
-        hp.rotation.y = -0.4;
-        scene.add(hp);
+            hp.add(cupGroup);
+          });
 
-        let raf = 0;
-        const clock = new THREE.Clock();
-        const animate = () => {
-          raf = requestAnimationFrame(animate);
-          hp.position.y = Math.sin(clock.getElapsedTime() * 1.6) * 0.09;
-          controls.update();
-          renderer.render(scene, camera);
-        };
-        animate();
+          hp.rotation.x = 0.16;
+          hp.rotation.y = -0.35;
+          scene.add(hp);
 
-        const onResize = () => {
-          if (!container) return;
-          camera.aspect = container.clientWidth / container.clientHeight;
-          camera.updateProjectionMatrix();
-          renderer.setSize(container.clientWidth, container.clientHeight);
-        };
-        window.addEventListener('resize', onResize);
+          const clock = new THREE.Clock();
+          const animate = () => {
+            raf = requestAnimationFrame(animate);
+            hp.position.y = Math.sin(clock.getElapsedTime() * 1.6) * 0.09;
+            controls.update();
+            renderer.render(scene, camera);
+          };
+          animate();
 
-        return () => {
-          cancelAnimationFrame(raf);
-          window.removeEventListener('resize', onResize);
-          controls.dispose();
-          renderer.dispose();
-          if (renderer.domElement.parentNode === container) container.removeChild(renderer.domElement);
-        };
+          const handleResize = () => {
+            if (!container || !renderer) return;
+            const w = Math.max(240, container.clientWidth);
+            const hPx = Math.max(240, container.clientHeight);
+            camera.aspect = w / hPx;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, hPx);
+          };
+          observer = new ResizeObserver(handleResize);
+          observer.observe(container);
+          window.addEventListener('resize', handleResize);
+
+          return () => {
+            cancelAnimationFrame(raf);
+            window.removeEventListener('resize', handleResize);
+            if (observer) observer.disconnect();
+            controls.dispose();
+            renderer.dispose();
+          };
+        } catch (err) {
+          console.error('3D init error:', err);
+          setWebglError(true);
+        }
       }, []);
 
-      return h('div', { ref: mountRef, className: 'w-full h-[320px] sm:h-[420px] cursor-grab active:cursor-grabbing' });
+      if (webglError) {
+        return h('div', { className: 'w-full h-[280px] sm:h-[360px] md:h-[420px] flex items-center justify-center' },
+          h('div', { className: 'w-44 h-44 rounded-full bg-gradient-to-br from-[#2563EB]/30 to-[#1C9B90]/20 border border-white/10 flex items-center justify-center text-5xl shadow-2xl' }, '🎧')
+        );
+      }
+
+      return h('div', {
+        ref: mountRef,
+        style: { minHeight: '280px' },
+        className: 'w-full h-[290px] sm:h-[360px] md:h-[430px] cursor-grab active:cursor-grabbing select-none',
+      });
     }
 
     function App() {
-      const [release, setRelease] = useState({ tag: 'v1.0.0', url: 'https://github.com/swaramusic/Swara/releases', label: 'Download APK' });
+      const [release, setRelease] = useState({ tag: 'v1.0.0', url: RELEASES_URL, label: 'Download APK', hasDirectApk: false });
       const [showQris, setShowQris] = useState(false);
       const [showFeedback, setShowFeedback] = useState(false);
       const [fbType, setFbType] = useState('Saran');
       const [fbContact, setFbContact] = useState('');
       const [fbMsg, setFbMsg] = useState('');
-      const [fbStatus, setFbStatus] = useState('');
+      const [fbStatus, setFbStatus] = useState({ type: '', text: '' });
+      const [sending, setSending] = useState(false);
 
       useEffect(() => {
         fetch('https://api.github.com/repos/swaramusic/Swara/releases/latest')
@@ -144,8 +184,9 @@
             const apk = (d.assets || []).find((a) => a.name && a.name.endsWith('.apk'));
             setRelease({
               tag: d.tag_name || 'v1.0.0',
-              url: apk?.browser_download_url || d.html_url || 'https://github.com/swaramusic/Swara/releases',
-              label: apk?.name ? `Download ${apk.name}` : 'Download APK',
+              url: apk?.browser_download_url || d.html_url || RELEASES_URL,
+              label: apk?.name ? `Download APK (${d.tag_name || 'Latest'})` : 'Lihat Rilis APK',
+              hasDirectApk: Boolean(apk?.browser_download_url),
             });
           })
           .catch(() => {});
@@ -153,15 +194,16 @@
 
       async function submitFeedback(e) {
         e.preventDefault();
-        if (!fbMsg.trim()) return;
+        if (!fbMsg.trim() || sending) return;
         if (!FEEDBACK_SCRIPT_URL) {
           const subject = encodeURIComponent(`[Swara ${fbType}] Masukan Pengguna`);
           const body = encodeURIComponent(`Jenis: ${fbType}\nKontak: ${fbContact || '-'}\n\n${fbMsg}`);
           window.location.href = `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
-          setFbStatus('Membuka aplikasi email...');
+          setFbStatus({ type: 'info', text: 'Membuka aplikasi email untuk mengirim masukan...' });
           return;
         }
-        setFbStatus('Mengirim...');
+        setSending(true);
+        setFbStatus({ type: 'info', text: 'Mengirim masukan...' });
         try {
           await fetch(FEEDBACK_SCRIPT_URL, {
             method: 'POST',
@@ -169,40 +211,50 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ type: fbType, contact: fbContact, message: fbMsg, time: new Date().toISOString() }),
           });
-          setFbStatus('Terkirim ke Google Sheets!');
+          setFbStatus({ type: 'success', text: 'Terima kasih! Masukan Anda sudah masuk ke Google Sheets.' });
           setFbMsg('');
+          setFbContact('');
         } catch {
-          setFbStatus('Gagal mengirim. Coba lagi.');
+          setFbStatus({ type: 'error', text: 'Gagal mengirim. Coba lagi beberapa saat.' });
+        } finally {
+          setSending(false);
         }
       }
 
       return h(
         'div',
-        { className: 'min-h-screen flex flex-col justify-between bg-[radial-gradient(circle_at_70%_20%,rgba(37,99,235,0.22),transparent_48%),radial-gradient(circle_at_20%_80%,rgba(28,155,144,0.16),transparent_45%)]' },
+        { className: 'min-h-screen flex flex-col justify-between bg-[radial-gradient(circle_at_70%_20%,rgba(37,99,235,0.24),transparent_48%),radial-gradient(circle_at_20%_80%,rgba(28,155,144,0.18),transparent_45%)]' },
         [
-          h('nav', { key: 'nav', className: 'max-w-5xl w-full mx-auto px-6 py-6 flex items-center justify-between' }, [
-            h('span', { className: 'font-extrabold tracking-[0.22em] text-lg' }, 'SWARA'),
-            h('div', { className: 'flex items-center gap-5 text-sm text-white/70' }, [
+          h('header', { key: 'nav', className: 'max-w-6xl w-full mx-auto px-4 sm:px-6 py-5 flex items-center justify-between gap-4' }, [
+            h('span', { className: 'font-extrabold tracking-[0.24em] text-base sm:text-lg' }, 'SWARA'),
+            h('nav', { className: 'flex items-center gap-3 sm:gap-6 text-xs sm:text-sm text-white/75' }, [
               h('button', { onClick: () => setShowFeedback(true), className: 'hover:text-white transition cursor-pointer' }, 'Feedback'),
               h('button', { onClick: () => setShowQris(true), className: 'hover:text-white transition cursor-pointer' }, 'QRIS'),
               h('a', { href: 'https://github.com/swaramusic/Swara', target: '_blank', rel: 'noreferrer', className: 'hover:text-white transition' }, 'GitHub'),
             ]),
           ]),
 
-          h('main', { key: 'main', className: 'max-w-5xl w-full mx-auto px-6 grid grid-cols-1 md:grid-cols-2 gap-6 items-center my-auto' }, [
-            h('div', { className: 'space-y-5 text-center md:text-left' }, [
-              h('span', { className: 'inline-block px-3.5 py-1 rounded-full text-xs font-semibold bg-[#2563EB]/20 text-[#93C5FD]' }, `${release.tag} • GPL-3.0`),
-              h('h1', { className: 'text-4xl sm:text-5xl font-extrabold tracking-tight leading-tight' }, 'Swara'),
-              h('p', { className: 'text-white/65 text-base max-w-md mx-auto md:mx-0' }, 'Fast & Fluid Music Player.'),
-              h('div', { className: 'flex flex-wrap justify-center md:justify-start gap-3 pt-1' }, [
-                h('a', { href: release.url, target: '_blank', rel: 'noreferrer', className: 'px-6 py-3 rounded-full bg-[#2563EB] hover:bg-[#1D4ED8] font-bold text-sm text-white transition shadow-lg shadow-[#2563EB]/25' }, release.label),
-                h('button', { onClick: () => setShowFeedback(true), className: 'px-6 py-3 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 font-semibold text-sm transition cursor-pointer' }, 'Saran / Komplain'),
+          h('main', { key: 'main', className: 'max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-10 grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10 items-center my-auto' }, [
+            h('div', { className: 'space-y-5 text-center md:text-left order-2 md:order-1' }, [
+              h('span', { className: 'inline-flex items-center gap-2 px-3.5 py-1 rounded-full text-xs font-semibold bg-[#2563EB]/20 text-[#93C5FD] border border-[#2563EB]/30' }, `${release.tag} • Android • GPL-3.0`),
+              h('h1', { className: 'text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-tight' }, 'Swara'),
+              h('p', { className: 'text-white/70 text-sm sm:text-base max-w-md mx-auto md:mx-0 leading-relaxed' }, 'Fast & Fluid Music Player.'),
+              h('div', { className: 'flex flex-col sm:flex-row items-stretch sm:items-center justify-center md:justify-start gap-3 pt-2' }, [
+                h('a', {
+                  href: release.url,
+                  ...(release.hasDirectApk ? { download: '' } : { target: '_blank', rel: 'noreferrer' }),
+                  className: 'px-6 py-3.5 rounded-full bg-[#2563EB] hover:bg-[#1D4ED8] font-bold text-sm text-white transition shadow-lg shadow-[#2563EB]/30 text-center',
+                }, release.label),
+                h('button', {
+                  onClick: () => setShowFeedback(true),
+                  className: 'px-6 py-3.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 font-semibold text-sm transition cursor-pointer text-center',
+                }, 'Saran / Komplain'),
               ]),
             ]),
-            h(Headphone3D, { key: '3d' }),
+            h('div', { key: '3dwrap', className: 'order-1 md:order-2 w-full' }, h(Headphone3D)),
           ]),
 
-          h('footer', { key: 'foot', className: 'text-center py-6 text-xs text-white/45' }, `swaramusic/Swara • ${SUPPORT_EMAIL}`),
+          h('footer', { key: 'foot', className: 'text-center px-4 py-6 text-xs text-white/45' }, `swaramusic/Swara • ${SUPPORT_EMAIL}`),
 
           showQris &&
             h(
@@ -210,13 +262,13 @@
               { key: 'qrisModal', onClick: () => setShowQris(false), className: 'fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4' },
               h(
                 'div',
-                { onClick: (e) => e.stopPropagation(), className: 'bg-[#141A28] border border-white/15 rounded-3xl p-6 max-w-xs w-full text-center space-y-4' },
+                { onClick: (e) => e.stopPropagation(), className: 'bg-[#121826] border border-white/15 rounded-3xl p-6 max-w-xs w-full text-center space-y-4 shadow-2xl' },
                 [
                   h('h2', { className: 'font-bold text-lg' }, 'Support via QRIS'),
-                  h('div', { className: 'bg-white rounded-2xl p-3 mx-auto w-56 h-56 flex items-center justify-center' }, [
+                  h('div', { className: 'bg-white rounded-2xl p-3 mx-auto w-52 h-52 sm:w-56 sm:h-56 flex items-center justify-center' }, [
                     h('img', { src: './qris-qr.png', alt: 'QRIS', className: 'w-full h-full object-contain' }),
                   ]),
-                  h('button', { onClick: () => setShowQris(false), className: 'text-xs text-white/60 hover:text-white cursor-pointer' }, 'Tutup'),
+                  h('button', { onClick: () => setShowQris(false), className: 'w-full py-2.5 rounded-full bg-white/10 hover:bg-white/15 text-xs font-semibold text-white/80 cursor-pointer transition' }, 'Tutup'),
                 ]
               )
             ),
@@ -224,32 +276,72 @@
           showFeedback &&
             h(
               'div',
-              { key: 'fbModal', onClick: () => setShowFeedback(false), className: 'fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4' },
+              { key: 'fbModal', onClick: () => setShowFeedback(false), className: 'fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4' },
               h(
                 'form',
-                { onSubmit: submitFeedback, onClick: (e) => e.stopPropagation(), className: 'bg-[#141A28] border border-white/15 rounded-3xl p-6 max-w-sm w-full space-y-3' },
+                {
+                  onSubmit: submitFeedback,
+                  onClick: (e) => e.stopPropagation(),
+                  className: 'bg-[#121826] border border-white/15 rounded-3xl p-5 sm:p-6 max-w-md w-full max-h-[90dvh] overflow-y-auto space-y-4 shadow-2xl',
+                },
                 [
-                  h('h2', { className: 'font-bold text-lg' }, 'Saran & Komplain'),
-                  h('div', { className: 'flex gap-2' }, ['Saran', 'Komplain', 'Bug'].map((t) =>
+                  h('div', { className: 'flex items-start justify-between gap-3' }, [
+                    h('div', { className: 'space-y-1' }, [
+                      h('h2', { className: 'font-bold text-lg text-white' }, 'Saran & Komplain'),
+                      h('p', { className: 'text-xs text-white/55' }, 'Bantu kami membuat Swara lebih ringan dan nyaman.'),
+                    ]),
                     h('button', {
-                      type: 'button', key: t, onClick: () => setFbType(t),
-                      className: `flex-1 py-1.5 rounded-full text-xs font-semibold cursor-pointer ${fbType === t ? 'bg-[#2563EB] text-white' : 'bg-white/10 text-white/70'}`,
+                      type: 'button',
+                      onClick: () => setShowFeedback(false),
+                      className: 'w-8 h-8 rounded-full bg-white/5 hover:bg-white/15 flex items-center justify-center text-white/60 hover:text-white cursor-pointer transition',
+                    }, '✕'),
+                  ]),
+
+                  h('div', { className: 'grid grid-cols-3 gap-1.5 p-1 rounded-2xl bg-black/35 border border-white/10' }, ['Saran', 'Komplain', 'Bug'].map((t) =>
+                    h('button', {
+                      type: 'button',
+                      key: t,
+                      onClick: () => setFbType(t),
+                      className: `py-2 rounded-xl text-xs font-semibold cursor-pointer transition ${fbType === t ? 'bg-[#2563EB] text-white shadow' : 'text-white/65 hover:text-white'}`,
                     }, t)
                   )),
-                  h('input', {
-                    type: 'text', value: fbContact, onChange: (e) => setFbContact(e.target.value),
-                    placeholder: 'Nama / Email (opsional)',
-                    className: 'w-full px-3.5 py-2 rounded-xl bg-black/30 border border-white/15 text-sm outline-none focus:border-[#2563EB]',
-                  }),
-                  h('textarea', {
-                    rows: 4, required: true, value: fbMsg, onChange: (e) => setFbMsg(e.target.value),
-                    placeholder: 'Tulis masukan, saran, atau kendala Anda...',
-                    className: 'w-full px-3.5 py-2 rounded-xl bg-black/30 border border-white/15 text-sm outline-none focus:border-[#2563EB]',
-                  }),
-                  fbStatus && h('p', { className: 'text-xs text-[#93C5FD]' }, fbStatus),
-                  h('div', { className: 'flex justify-end gap-2 pt-1' }, [
-                    h('button', { type: 'button', onClick: () => setShowFeedback(false), className: 'px-4 py-2 text-xs text-white/65 hover:text-white cursor-pointer' }, 'Batal'),
-                    h('button', { type: 'submit', className: 'px-5 py-2 rounded-full bg-[#2563EB] hover:bg-[#1D4ED8] text-xs font-bold text-white cursor-pointer' }, 'Kirim'),
+
+                  h('div', { className: 'space-y-1.5' }, [
+                    h('label', { className: 'block text-xs font-medium text-white/70' }, 'Nama / Kontak (Opsional)'),
+                    h('input', {
+                      type: 'text',
+                      value: fbContact,
+                      onChange: (e) => setFbContact(e.target.value),
+                      placeholder: 'Contoh: Andi / @telegram / email',
+                      className: 'w-full px-3.5 py-2.5 rounded-xl bg-black/35 border border-white/15 text-sm text-white placeholder:text-white/35 outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/25 transition',
+                    }),
+                  ]),
+
+                  h('div', { className: 'space-y-1.5' }, [
+                    h('label', { className: 'block text-xs font-medium text-white/70' }, 'Pesan'),
+                    h('textarea', {
+                      rows: 4,
+                      required: true,
+                      value: fbMsg,
+                      onChange: (e) => setFbMsg(e.target.value),
+                      placeholder: 'Tulis saran fitur, kendala lag, atau bug yang Anda temukan...',
+                      className: 'w-full px-3.5 py-2.5 rounded-xl bg-black/35 border border-white/15 text-sm text-white placeholder:text-white/35 outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/25 transition resize-none',
+                    }),
+                  ]),
+
+                  fbStatus.text && h('div', {
+                    className: `px-3.5 py-2.5 rounded-xl text-xs border ${
+                      fbStatus.type === 'success'
+                        ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                        : fbStatus.type === 'error'
+                        ? 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                        : 'bg-[#2563EB]/15 border-[#2563EB]/30 text-[#93C5FD]'
+                    }`,
+                  }, fbStatus.text),
+
+                  h('div', { className: 'flex items-center justify-end gap-2.5 pt-1' }, [
+                    h('button', { type: 'button', onClick: () => setShowFeedback(false), className: 'px-4 py-2.5 rounded-full text-xs font-medium text-white/65 hover:text-white hover:bg-white/5 cursor-pointer transition' }, 'Batal'),
+                    h('button', { type: 'submit', disabled: sending, className: 'px-6 py-2.5 rounded-full bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-xs font-bold text-white cursor-pointer transition shadow-lg shadow-[#2563EB]/25' }, sending ? 'Mengirim...' : 'Kirim Masukan'),
                   ]),
                 ]
               )

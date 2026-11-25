@@ -80,7 +80,11 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.Player
+import coil.Coil
+import coil.ImageLoader
 import coil.compose.AsyncImage
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
 import com.swara.nativeapp.model.*
 import com.swara.nativeapp.playback.SwaraPlaybackService
 import com.swara.nativeapp.ui.SwaraViewModel
@@ -112,6 +116,24 @@ class MainActivity : ComponentActivity() {
         ) {
             notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+
+        Coil.setImageLoader(
+            ImageLoader.Builder(applicationContext)
+                .memoryCache {
+                    MemoryCache.Builder(applicationContext)
+                        .maxSizePercent(0.25)
+                        .build()
+                }
+                .diskCache {
+                    DiskCache.Builder()
+                        .directory(cacheDir.resolve("image_cache"))
+                        .maxSizeBytes(60L * 1024 * 1024)
+                        .build()
+                }
+                .crossfade(150)
+                .respectCacheHeaders(false)
+                .build()
+        )
 
         setContent { SwaraThemeRoot() }
     }
@@ -447,6 +469,22 @@ private fun SwaraAnimatedVectorLogo(modifier: Modifier = Modifier) {
 }
 
 private enum class NavTab { HOME, EXPLORE, LIBRARY, STATS, SETTINGS }
+
+@Composable
+private fun MiniPlayerProgress(
+    progressFlow: kotlinx.coroutines.flow.StateFlow<Pair<Long, Long>>,
+    primaryColor: Color,
+    collapseFraction: Float,
+) {
+    val (posMs, durMs) = progressFlow.collectAsState().value
+    val progress = if (durMs > 0) (posMs.toFloat() / durMs).coerceIn(0f, 1f) else 0f
+    LinearProgressIndicator(
+        progress = { progress },
+        modifier = Modifier.fillMaxWidth().height(2.dp).graphicsLayer { alpha = 1f - collapseFraction },
+        color = primaryColor,
+        trackColor = TextInk.copy(alpha = 0.08f),
+    )
+}
 private fun navTabLabel(t: NavTab): String = when (t) {
     NavTab.HOME -> S.home
     NavTab.EXPLORE -> S.explore
@@ -526,14 +564,21 @@ fun SwaraNativeApp(
     val likedIds = remember(state.likedTracks) { state.likedTracks.map { it.id }.toSet() }
     val downloadedIds = remember(state.downloadedTracks) { state.downloadedTracks.map { it.id }.toSet() }
 
-    val onTrackAction: (List<Track>, Int) -> Unit = { list, idx ->
-        val item = list.getOrNull(idx)
-        if (item != null && item.browseId.isNotBlank()) {
-            vm.openBrowseItem(item)
-        } else {
-            vm.playFromList(list, idx)
+    val onTrackAction: (List<Track>, Int) -> Unit = remember(vm) {
+        { list, idx ->
+            val item = list.getOrNull(idx)
+            if (item != null && item.browseId.isNotBlank()) {
+                vm.openBrowseItem(item)
+            } else {
+                vm.playFromList(list, idx)
+            }
         }
     }
+    val onToggleLikeCb: (Track) -> Unit = remember(vm) { { vm.toggleLike(it) } }
+    val onAddToQueueCb: (Track) -> Unit = remember(vm) { { vm.addToQueue(it) } }
+    val onDownloadCb: (Track) -> Unit = remember(vm) { { vm.downloadTrack(it) } }
+    val onSaveToPlaylistCb: (Track) -> Unit = remember { { playlistPickerTrack = it } }
+    val onOpenArtistCb: (String) -> Unit = remember(vm) { { vm.openArtist(it) } }
 
     var isBarCollapsed by remember { mutableStateOf(false) }
     val barScrollConn = remember {
@@ -601,12 +646,12 @@ fun SwaraNativeApp(
                 Box(modifier = Modifier.fillMaxSize()) {
                     AnimatedContent(
                         targetState = activeTab,
+                        contentKey = { it },
                         transitionSpec = {
                             val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
-                            (slideInHorizontally(spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)) { dir * it / 5 } +
-                                fadeIn(tween(220)) +
-                                scaleIn(initialScale = 0.97f, animationSpec = tween(220))) togetherWith
-                                (slideOutHorizontally(tween(180)) { -dir * it / 6 } + fadeOut(tween(160)))
+                            (slideInHorizontally(tween(170, easing = FastOutSlowInEasing)) { dir * it / 16 } +
+                                fadeIn(tween(150))) togetherWith
+                                fadeOut(tween(110))
                         },
                         label = "mainTabTransition"
                     ) { currentNavTab ->
@@ -624,10 +669,10 @@ fun SwaraNativeApp(
                             primaryColor = primaryColor,
                             onSelectMood = { vm.selectMood(it) },
                             onPlay = onTrackAction,
-                            onToggleLike = { vm.toggleLike(it) },
-                            onAddToQueue = { vm.addToQueue(it) },
-                            onDownload = { vm.downloadTrack(it) },
-                            onSaveToPlaylist = { playlistPickerTrack = it },
+                            onToggleLike = onToggleLikeCb,
+                            onAddToQueue = onAddToQueueCb,
+                            onDownload = onDownloadCb,
+                            onSaveToPlaylist = onSaveToPlaylistCb,
                             onOpenHistory = { showHistorySheet = true },
                             onOpenListenTogether = { showListenSheet = true },
                             onOpenStats = { activeTab = NavTab.STATS },
@@ -654,12 +699,12 @@ fun SwaraNativeApp(
                             glowColor = glowColor,
                             onPlay = onTrackAction,
                             onPlaySearchResult = { vm.playSingleWithRadio(it) },
-                            onToggleLike = { vm.toggleLike(it) },
-                            onAddToQueue = { vm.addToQueue(it) },
-                            onDownload = { vm.downloadTrack(it) },
-                            onSaveToPlaylist = { playlistPickerTrack = it },
+                            onToggleLike = onToggleLikeCb,
+                            onAddToQueue = onAddToQueueCb,
+                            onDownload = onDownloadCb,
+                            onSaveToPlaylist = onSaveToPlaylistCb,
                             onOpenIdentify = { showIdentifySheet = true },
-                            onOpenArtist = { vm.openArtist(it) },
+                            onOpenArtist = onOpenArtistCb,
                             onRemoveHistory = { vm.removeSearchHistory(it) },
                             onClearHistory = { vm.clearSearchHistory() },
                         )
@@ -676,17 +721,17 @@ fun SwaraNativeApp(
                             downloadingIds = state.downloadingIds,
                             primaryColor = primaryColor,
                             onPlay = onTrackAction,
-                            onToggleLike = { vm.toggleLike(it) },
-                            onAddToQueue = { vm.addToQueue(it) },
-                            onDownload = { vm.downloadTrack(it) },
+                            onToggleLike = onToggleLikeCb,
+                            onAddToQueue = onAddToQueueCb,
+                            onDownload = onDownloadCb,
                             onDeleteDownload = { vm.deleteDownload(it.id) },
-                            onSaveToPlaylist = { playlistPickerTrack = it },
+                            onSaveToPlaylist = onSaveToPlaylistCb,
                             onCreatePlaylist = { showCreatePlaylistDialog = true },
                             onImportPlaylist = { showImportPlaylistDialog = true },
                             onImportDevice = { deviceAudioLauncher.launch(arrayOf("audio/*")) },
                             onOpenPlaylist = { openedUserPlaylist = it },
                             onDeletePlaylist = { vm.deletePlaylist(it.id) },
-                            onOpenArtist = { vm.openArtist(it) },
+                            onOpenArtist = onOpenArtistCb,
                             onUnfollowArtist = { vm.toggleFollowArtist(it) },
                             onOpenExplore = { activeTab = NavTab.EXPLORE },
                         )
@@ -852,14 +897,7 @@ fun SwaraNativeApp(
                                         }
                                     }
                                     if (collapseFraction < 0.85f) {
-                                        val (posMs, durMs) = vm.progress.collectAsState().value
-                                        val progress = if (durMs > 0) (posMs.toFloat() / durMs).coerceIn(0f, 1f) else 0f
-                                        LinearProgressIndicator(
-                                            progress = { progress },
-                                            modifier = Modifier.fillMaxWidth().height(2.dp).graphicsLayer { alpha = 1f - collapseFraction },
-                                            color = primaryColor,
-                                            trackColor = TextInk.copy(alpha = 0.08f),
-                                        )
+                                        MiniPlayerProgress(progressFlow = vm.progress, primaryColor = primaryColor, collapseFraction = collapseFraction)
                                     }
                                 }
                             }
@@ -1560,7 +1598,7 @@ private fun HomeScreen(
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    itemsIndexed(recent.take(10)) { idx, track ->
+                    itemsIndexed(recent.take(10), key = { _, t -> "recent_${t.id}" }) { idx, track ->
                         OverlayTrackCard(track = track, onClick = { onPlay(recent, idx) })
                     }
                 }
@@ -1581,7 +1619,7 @@ private fun HomeScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(MOOD_CHIPS) { mood ->
+                items(MOOD_CHIPS, key = { it }) { mood ->
                     val selected = mood == activeMood
                     val chipBg by androidx.compose.animation.animateColorAsState(
                         targetValue = if (selected) primaryColor else CardDark,
@@ -1662,7 +1700,7 @@ private fun HomeScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            itemsIndexed(shelf.tracks) { idx, track ->
+                            itemsIndexed(shelf.tracks, key = { idx, t -> "${shelf.title}_${idx}_${t.id}" }) { idx, track ->
                                 OverlayTrackCard(track = track, onClick = { onPlay(shelf.tracks, idx) })
                             }
                         }

@@ -2,10 +2,12 @@
 
 # Swara
 
-**Native Android & Desktop Music Player — Fast, Fluid, Pure Kotlin & Tauri**
+**Native Android Music Player — Fast, Fluid, Pure Kotlin & Jetpack Compose**
+
+[![Download APK](https://img.shields.io/badge/Download-Latest%20APK-2563EB?style=for-the-badge&logo=android&logoColor=white)](https://github.com/swaramusic/Swara/releases/latest)
+[![Website](https://img.shields.io/badge/Website-Swara%20Pages-1C9B90?style=for-the-badge)](https://swaramusic.github.io/Swara/)
 
 [![Android CI](https://github.com/swaramusic/Swara/actions/workflows/android-build.yml/badge.svg)](https://github.com/swaramusic/Swara/actions/workflows/android-build.yml)
-[![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20Desktop-2563EB.svg)](#apps)
 [![License](https://img.shields.io/badge/License-GPL--3.0-1C9B90.svg)](#license)
 
 </div>
@@ -24,9 +26,6 @@
 - **Listening Stats & Recap** — Flame streak, real play-count ranked Top Songs & Top Artists, and shareable Story Recap cards.
 - **Multi-language & Theming** — Dark, Light, and AMOLED modes with built-in accent palettes + custom RGB color picker.
 
-### Desktop (`apps/desktop` + `apps/desktop-ui`)
-- Cross-platform desktop app powered by **Tauri (Rust)** and **React + TypeScript**.
-
 ---
 
 ## Project Structure
@@ -34,12 +33,8 @@
 ```text
 Swara/
 ├── apps/
-│   ├── android-native/   # Pure Kotlin + Jetpack Compose + Media3 Android app
-│   ├── desktop/          # Tauri desktop wrapper (Rust)
-│   └── desktop-ui/       # Desktop React/Vite frontend
-├── packages/
-│   ├── core/             # Shared desktop/web core store & providers
-│   └── ui-tokens/        # Shared design tokens
+│   └── android-native/   # Pure Kotlin + Jetpack Compose + Media3 Android app
+├── docs/                 # Swara landing & download website (GitHub Pages)
 └── .github/              # CI workflows, Issue & PR templates
 ```
 

@@ -24,3 +24,8 @@ apps/android-native/.gradle/
 apps/android-native/app/build/
 apps/android-native/build/
 apps/android-native/local.properties
+
+# Unfinished desktop app (kept locally, excluded from mobile release repo)
+apps/desktop/
+apps/desktop-ui/
+packages/
