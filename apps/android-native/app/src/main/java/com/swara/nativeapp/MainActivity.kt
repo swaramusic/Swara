@@ -1629,7 +1629,7 @@ private fun HomeScreen(
                             Icon(Icons.Default.Favorite, contentDescription = null, tint = primaryColor, modifier = Modifier.size(20.dp))
                         }
                         Text(
-                            if (likedIds.isNotEmpty()) S.liked else S.quickPlay,
+                            S.liked,
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                             color = TextInk,

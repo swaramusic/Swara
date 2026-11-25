@@ -9,7 +9,10 @@
   <meta name="description" content="Download Swara — a fast, lightweight, open-source Android music player built with Kotlin and Jetpack Compose. Stream music, synced lyrics, equalizer, and offline downloads." />
   <meta name="keywords" content="Swara, Swara music player, Swara APK, Android music player, open source music player, Kotlin music app, Jetpack Compose music player" />
   <meta name="robots" content="index, follow" />
+  <meta name="google-site-verification" content="dQiQZmzoUKUAJIWSq8i2Fifw4iW7aleBMItS7YEQwR8" />
   <link rel="canonical" href="https://swaramusic.github.io/Swara/" />
+  <link rel="icon" type="image/svg+xml" href="./logo.svg" />
+  <link rel="apple-touch-icon" href="./logo.svg" />
   <meta property="og:title" content="Swara — Fast &amp; Fluid Android Music Player" />
   <meta property="og:description" content="Download Swara APK — lightweight, open-source Android music player with Material Design 3, equalizer, synced lyrics, and offline support." />
   <meta property="og:type" content="website" />
@@ -255,8 +258,13 @@
         { className: 'min-h-screen flex flex-col justify-between bg-[radial-gradient(circle_at_70%_20%,rgba(37,99,235,0.24),transparent_48%),radial-gradient(circle_at_20%_80%,rgba(28,155,144,0.18),transparent_45%)]' },
         [
           h('header', { key: 'nav', className: 'max-w-6xl w-full mx-auto px-4 sm:px-6 py-5 flex items-center justify-between gap-4' }, [
-            h('span', { className: 'font-extrabold tracking-[0.24em] text-base sm:text-lg' }, 'SWARA'),
+            h('a', { href: '#top', className: 'flex items-center gap-2.5' }, [
+              h('img', { src: './logo.svg', alt: 'Swara Logo', className: 'w-8 h-8 rounded-lg' }),
+              h('span', { className: 'font-extrabold tracking-[0.22em] text-base sm:text-lg' }, 'SWARA'),
+            ]),
             h('nav', { className: 'flex items-center gap-4 sm:gap-6 text-xs sm:text-sm text-white/75' }, [
+              h('a', { href: '#features', className: 'hidden sm:inline hover:text-white transition' }, 'Features'),
+              h('a', { href: '#faq', className: 'hidden sm:inline hover:text-white transition' }, 'FAQ'),
               h('button', { onClick: () => setShowSuggestions(true), className: 'hover:text-white transition cursor-pointer' }, 'Suggestions'),
               h('button', { onClick: () => setShowSupport(true), className: 'hover:text-white transition cursor-pointer' }, 'Support'),
               h('a', { href: 'https://github.com/swaramusic/Swara', target: '_blank', rel: 'noopener noreferrer', className: 'hover:text-white transition' }, 'GitHub'),
@@ -285,6 +293,41 @@
               ]),
             ]),
             h('div', { key: '3dwrap', className: 'order-1 md:order-2 w-full' }, h(Headphone3D)),
+          ]),
+
+          h('section', { key: 'features', id: 'features', className: 'max-w-6xl w-full mx-auto px-4 sm:px-6 py-10 space-y-6' }, [
+            h('div', { className: 'space-y-1 text-center md:text-left' }, [
+              h('h2', { className: 'text-2xl sm:text-3xl font-bold' }, 'Why Swara?'),
+              h('p', { className: 'text-sm text-white/60' }, 'Built in pure Kotlin & Jetpack Compose for zero-bloat speed.'),
+            ]),
+            h('div', { className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4' }, [
+              ['Native Media3 Engine', 'Smooth background playback, lock-screen controls, and Bluetooth support with zero WebView overhead.'],
+              ['Dynamic Island & Vinyl', 'Floating miniplayer pill with animated progress bar, clean square cover art, and tap-to-spin Vinyl mode.'],
+              ['Equalizer & Sound Styles', '5-band native equalizer, Bass Boost, Room Reverb, Speed/Pitch, Nightcore, Lo-fi, and 8D profiles.'],
+              ['Offline & Local Audio', 'Download songs for offline listening, manage song cache size, or import local FLAC, MP3, and WAV files.'],
+              ['Synced Lyrics & Stats', 'Time-synced lyrics, listening streaks, top charts by region, and shareable Story Recap cards.'],
+              ['Open Source & Ad-Free', '100% free under GPL-3.0, zero ads, zero trackers, and HTTPS-only network security.'],
+            ].map(([title, desc]) =>
+              h('div', { key: title, className: 'p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-1.5' }, [
+                h('h3', { className: 'font-bold text-sm sm:text-base text-white' }, title),
+                h('p', { className: 'text-xs sm:text-sm text-white/65 leading-relaxed' }, desc),
+              ])
+            )),
+          ]),
+
+          h('section', { key: 'faq', id: 'faq', className: 'max-w-6xl w-full mx-auto px-4 sm:px-6 py-8 space-y-5' }, [
+            h('h2', { className: 'text-2xl sm:text-3xl font-bold text-center md:text-left' }, 'Quick Guide & FAQ'),
+            h('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-4' }, [
+              ['How do I install Swara on Android?', 'Tap Download APK above, open the downloaded .apk file on Android 8.0+, allow "Install from this source" if prompted, and tap Install.'],
+              ['Is Swara safe to install?', 'Yes. Swara is 100% open source (GPL-3.0) with no ads, no trackers, and HTTPS-only network rules. You can inspect all source code on GitHub.'],
+              ['How do I import Spotify or YouTube Music playlists?', 'Open Library → Import, paste any public Spotify or YouTube Music playlist link, and Swara will convert it automatically.'],
+              ['How do I update to the latest version?', 'Swara checks for new GitHub releases automatically on startup, or you can tap Settings → About Swara → Check for updates.'],
+            ].map(([q, a]) =>
+              h('div', { key: q, className: 'p-5 rounded-2xl bg-white/[0.03] border border-white/10 space-y-1.5' }, [
+                h('h3', { className: 'font-semibold text-sm text-[#93C5FD]' }, q),
+                h('p', { className: 'text-xs sm:text-sm text-white/65 leading-relaxed' }, a),
+              ])
+            )),
           ]),
 
           h('footer', { key: 'foot', className: 'text-center px-4 py-6 text-xs text-white/45' }, 'swaramusic/Swara • Open Source under GPL-3.0'),
