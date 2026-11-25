@@ -1602,49 +1602,61 @@ private fun HomeScreen(
         }.distinctBy { it.id }.take(4)
 
         if (quickGrid.isNotEmpty()) {
-            item(key = "your_likes_banner") {
-                Surface(
-                    color = CardDark,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { onPlay(quickGrid.shuffled(), 0) }
-                ) {
-                    Row(
+            if (likedIds.isNotEmpty()) {
+                item(key = "your_likes_banner") {
+                    Surface(
+                        color = CardDark,
+                        shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
-                            .background(Brush.horizontalGradient(listOf(primaryColor.copy(alpha = 0.28f), CardDark)))
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onPlay(quickGrid.shuffled(), 0) }
                     ) {
-                        Box(
+                        Row(
                             modifier = Modifier
-                                .size(38.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(primaryColor.copy(alpha = 0.22f)),
-                            contentAlignment = Alignment.Center
+                                .background(Brush.horizontalGradient(listOf(primaryColor.copy(alpha = 0.28f), CardDark)))
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Icon(Icons.Default.Favorite, contentDescription = null, tint = primaryColor, modifier = Modifier.size(20.dp))
-                        }
-                        Text(
-                            S.liked,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = TextInk,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Surface(
-                            color = TextInk.copy(alpha = 0.1f),
-                            shape = CircleShape,
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Shuffle, contentDescription = "Shuffle", tint = TextInk, modifier = Modifier.size(17.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(primaryColor.copy(alpha = 0.22f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Favorite, contentDescription = null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                            }
+                            Text(
+                                S.liked,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = TextInk,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Surface(
+                                color = TextInk.copy(alpha = 0.1f),
+                                shape = CircleShape,
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Shuffle, contentDescription = "Shuffle", tint = TextInk, modifier = Modifier.size(17.dp))
+                                }
                             }
                         }
                     }
+                }
+            } else {
+                item(key = "get_back_header") {
+                    Text(
+                        S.resume,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextInk,
+                        modifier = Modifier.padding(start = 16.dp, top = 2.dp)
+                    )
                 }
             }
             item(key = "quick_2x2_grid") {
