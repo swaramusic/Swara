@@ -130,7 +130,7 @@ class MainActivity : ComponentActivity() {
                         .maxSizeBytes(60L * 1024 * 1024)
                         .build()
                 }
-                .crossfade(150)
+                .crossfade(false)
                 .respectCacheHeaders(false)
                 .build()
         )
@@ -724,6 +724,7 @@ fun SwaraNativeApp(
                             downloadedIds = downloadedIds,
                             downloadingIds = state.downloadingIds,
                             primaryColor = primaryColor,
+                            glowColor = glowColor,
                             onSelectMood = { vm.selectMood(it) },
                             onPlay = onTrackAction,
                             onToggleLike = onToggleLikeCb,
@@ -841,20 +842,14 @@ fun SwaraNativeApp(
                 }
             }
 
-            // Transparent overlay Liquid Glass Miniplayer + Nav (content scrolls behind it edge-to-edge!)
-            val rawCollapse by animateFloatAsState(
-                targetValue = if (isBarCollapsed) 1f else 0f,
-                animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
-                label = "barCollapseFraction"
-            )
-            val collapseFraction = rawCollapse.coerceIn(0f, 1f)
-            val liquidGlassBg = if (CardDark == Color(0xFFF3F6FC)) Color.White.copy(alpha = 0.86f) else CardDark.copy(alpha = 0.86f)
+            // Transparent overlay Liquid Glass Miniplayer + Nav (zero per-frame layout thrashing!)
+            val liquidGlassBg = if (CardDark == Color(0xFFF3F6FC)) Color.White.copy(alpha = 0.88f) else CardDark.copy(alpha = 0.88f)
             val liquidGlassBorder = Brush.linearGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.62f),
-                    primaryColor.copy(alpha = 0.45f),
-                    glowColor.copy(alpha = 0.42f),
-                    Color.White.copy(alpha = 0.35f)
+                    Color.White.copy(alpha = 0.55f),
+                    primaryColor.copy(alpha = 0.42f),
+                    glowColor.copy(alpha = 0.38f),
+                    Color.White.copy(alpha = 0.3f)
                 )
             )
             val activeIcon = when (activeTab) {
@@ -874,25 +869,19 @@ fun SwaraNativeApp(
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp * (1f - collapseFraction))
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Top row: Left circular active-tab pill (morphs in) + Miniplayer pill (slides smoothly right)
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        if (collapseFraction > 0.02f) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (isBarCollapsed) {
                             Surface(
                                 color = liquidGlassBg,
                                 shape = CircleShape,
                                 border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
-                                modifier = Modifier
-                                    .align(Alignment.CenterStart)
-                                    .size(54.dp)
-                                    .graphicsLayer {
-                                        alpha = collapseFraction
-                                        scaleX = 0.65f + 0.35f * collapseFraction
-                                        scaleY = 0.65f + 0.35f * collapseFraction
-                                    }
-                                    .clip(CircleShape)
-                                    .clickable { isBarCollapsed = false }
+                                modifier = Modifier.size(54.dp).clip(CircleShape).clickable { isBarCollapsed = false }
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(activeIcon, contentDescription = "Expand Nav", tint = TextInk, modifier = Modifier.size(24.dp))
@@ -906,11 +895,7 @@ fun SwaraNativeApp(
                                 color = liquidGlassBg,
                                 shape = RoundedCornerShape(30.dp),
                                 border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 64.dp * collapseFraction)
-                                    .clip(RoundedCornerShape(30.dp))
-                                    .clickable { showFullscreen = true }
+                                modifier = Modifier.weight(1f).clip(RoundedCornerShape(30.dp)).clickable { showFullscreen = true }
                             ) {
                                 Column {
                                     Row(
@@ -954,23 +939,17 @@ fun SwaraNativeApp(
                                             Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = TextInk, modifier = Modifier.size(20.dp))
                                         }
                                     }
-                                    if (collapseFraction < 0.85f) {
-                                        MiniPlayerProgress(progressFlow = vm.progress, primaryColor = primaryColor, collapseFraction = collapseFraction)
+                                    if (!isBarCollapsed) {
+                                        MiniPlayerProgress(progressFlow = vm.progress, primaryColor = primaryColor, collapseFraction = 0f)
                                     }
                                 }
                             }
-                        } else if (collapseFraction > 0.02f) {
+                        } else if (isBarCollapsed) {
                             Surface(
                                 color = liquidGlassBg,
                                 shape = RoundedCornerShape(30.dp),
                                 border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 64.dp * collapseFraction)
-                                    .height(54.dp)
-                                    .graphicsLayer { alpha = collapseFraction }
-                                    .clip(RoundedCornerShape(30.dp))
-                                    .clickable { isBarCollapsed = false }
+                                modifier = Modifier.weight(1f).height(54.dp).clip(RoundedCornerShape(30.dp)).clickable { isBarCollapsed = false }
                             ) {
                                 Row(
                                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -984,19 +963,16 @@ fun SwaraNativeApp(
                         }
                     }
 
-                    // Bottom 5-tab Nav Pill (smoothly shrinks & fades as collapseFraction -> 1f)
-                    if (collapseFraction < 0.98f) {
+                    AnimatedVisibility(
+                        visible = !isBarCollapsed,
+                        enter = fadeIn(tween(140)),
+                        exit = fadeOut(tween(110))
+                    ) {
                         Surface(
                             color = liquidGlassBg,
                             shape = RoundedCornerShape(32.dp),
                             border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(64.dp * (1f - collapseFraction))
-                                .graphicsLayer {
-                                    alpha = (1f - collapseFraction * 1.25f).coerceIn(0f, 1f)
-                                    translationY = 24f * collapseFraction
-                                }
+                            modifier = Modifier.fillMaxWidth().height(64.dp)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxSize().padding(vertical = 2.dp, horizontal = 4.dp),
@@ -1583,6 +1559,7 @@ private fun HomeScreen(
     downloadedIds: Set<String>,
     downloadingIds: Set<String>,
     primaryColor: Color,
+    glowColor: Color = primaryColor,
     onSelectMood: (String) -> Unit,
     onPlay: (List<Track>, Int) -> Unit,
     onToggleLike: (Track) -> Unit,
@@ -1596,16 +1573,16 @@ private fun HomeScreen(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        contentPadding = PaddingValues(top = 8.dp, bottom = 140.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item {
+        item(key = "home_header") {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    greetingText(),
+                    S.home,
                     fontSize = 26.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f)
@@ -1619,72 +1596,104 @@ private fun HomeScreen(
             }
         }
 
-        // S.resume Hero Banner
-        if (resumeTrack != null) {
-            item {
+        // SoundCloud-inspired "Your likes" + 2x2 quick-pick grid
+        val quickGrid = recent.filter { it.browseId.isBlank() }.ifEmpty {
+            shelves.flatMap { it.tracks }.filter { it.browseId.isBlank() }
+        }.distinctBy { it.id }.take(4)
+
+        if (quickGrid.isNotEmpty()) {
+            item(key = "your_likes_banner") {
                 Surface(
                     color = CardDark,
-                    shape = RoundedCornerShape(18.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
-                        .border(1.dp, TextInk.copy(alpha = 0.07f), RoundedCornerShape(18.dp))
-                        .clip(RoundedCornerShape(18.dp))
-                        .clickable { onPlay(listOf(resumeTrack), 0) }
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable { onPlay(quickGrid.shuffled(), 0) }
                 ) {
                     Row(
                         modifier = Modifier
-                            .background(Brush.horizontalGradient(listOf(primaryColor.copy(alpha = 0.22f), CardDark)))
-                            .padding(12.dp),
+                            .background(Brush.horizontalGradient(listOf(primaryColor.copy(alpha = 0.28f), CardDark)))
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        AsyncImage(
-                            model = resumeTrack.artworkUrl,
-                            contentDescription = resumeTrack.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.size(62.dp).clip(RoundedCornerShape(12.dp))
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(S.resume, fontSize = 11.sp, color = TextInk.copy(alpha = 0.6f))
-                            Text(resumeTrack.title, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(resumeTrack.artist, fontSize = 12.sp, color = TextInk.copy(alpha = 0.65f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        Surface(
-                            color = Color.White,
-                            shape = RoundedCornerShape(50),
-                            modifier = Modifier.clip(RoundedCornerShape(50)).clickable { onPlay(listOf(resumeTrack), 0) }
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(primaryColor.copy(alpha = 0.22f)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text(S.playBtn, color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Icon(Icons.Default.Favorite, contentDescription = null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                        }
+                        Text(
+                            if (likedIds.isNotEmpty()) S.liked else S.quickPlay,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = TextInk,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Surface(
+                            color = TextInk.copy(alpha = 0.1f),
+                            shape = CircleShape,
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.Shuffle, contentDescription = "Shuffle", tint = TextInk, modifier = Modifier.size(17.dp))
                             }
                         }
                     }
                 }
             }
-        }
-
-        // "Terakhir diputar" overlay cards (like screenshot 1)
-        if (recent.isNotEmpty() && activeMood == "Semua") {
-            item {
-                Text(S.recentPlayed, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp, top = 6.dp))
-            }
-            item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+            item(key = "quick_2x2_grid") {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    itemsIndexed(recent.take(10), key = { _, t -> "recent_${t.id}" }) { idx, track ->
-                        OverlayTrackCard(track = track, onClick = { onPlay(recent, idx) })
+                    quickGrid.chunked(2).forEach { pair ->
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            pair.forEach { t ->
+                                val idx = quickGrid.indexOf(t)
+                                Surface(
+                                    color = CardDark,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .clickable { onPlay(quickGrid, idx) }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        AsyncImage(
+                                            model = t.artworkUrl,
+                                            contentDescription = t.title,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))
+                                        )
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(t.title, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = TextInk, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(t.artist, fontSize = 10.sp, color = TextInk.copy(alpha = 0.62f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        }
+                                    }
+                                }
+                            }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
                     }
                 }
             }
         }
 
-        // Mood chips
-        item {
+        // Trending by genre / mood chips
+        item(key = "trending_genre_header") {
+            Text(S.trendingForYou, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = TextInk, modifier = Modifier.padding(start = 16.dp, top = 4.dp))
+        }
+        item(key = "mood_chips_row") {
             val moodLabels = mapOf(
                 "Semua" to S.moodAll,
                 "Santai" to S.moodChill,
@@ -1694,30 +1703,78 @@ private fun HomeScreen(
                 "Galau" to S.moodSad,
             )
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(MOOD_CHIPS, key = { it }) { mood ->
                     val selected = mood == activeMood
-                    val chipBg by androidx.compose.animation.animateColorAsState(
-                        targetValue = if (selected) primaryColor else CardDark,
-                        animationSpec = tween(180),
-                        label = "moodChipBg"
-                    )
                     Surface(
-                        color = chipBg,
+                        color = if (selected) primaryColor.copy(alpha = 0.16f) else Color.Transparent,
                         shape = RoundedCornerShape(50),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .clickable { onSelectMood(mood) }
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) primaryColor else TextInk.copy(alpha = 0.2f)),
+                        modifier = Modifier.clip(RoundedCornerShape(50)).clickable { onSelectMood(mood) }
                     ) {
                         Text(
-                            moodLabels[mood] ?: mood,
-                            fontSize = 13.sp,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (selected) Color.White else TextInk,
+                            (moodLabels[mood] ?: mood).uppercase(),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (selected) primaryColor else TextInk,
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
                         )
+                    }
+                }
+            }
+        }
+
+        // TODAY'S PICK - Hot For You featured card (from reference screenshot 2)
+        val hotTrack = resumeTrack ?: quickGrid.firstOrNull()
+        if (hotTrack != null && activeMood == "Semua") {
+            item(key = "hot_for_you") {
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("TODAY'S PICK", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, color = TextInk.copy(alpha = 0.55f))
+                    Text("Hot For You", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = TextInk)
+                    Surface(
+                        color = CardDark,
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable { onPlay(listOf(hotTrack), 0) }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .background(Brush.horizontalGradient(listOf(primaryColor.copy(alpha = 0.28f), glowColor.copy(alpha = 0.16f), CardDark)))
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Box(modifier = Modifier.width(86.dp).height(70.dp), contentAlignment = Alignment.CenterStart) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.CenterEnd)
+                                        .size(62.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF10131A))
+                                        .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                                )
+                                AsyncImage(
+                                    model = hotTrack.artworkUrl,
+                                    contentDescription = hotTrack.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.size(70.dp).clip(RoundedCornerShape(10.dp))
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(hotTrack.title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextInk, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(hotTrack.artist, fontSize = 12.sp, color = TextInk.copy(alpha = 0.68f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            Surface(
+                                color = Color.White,
+                                shape = CircleShape,
+                                modifier = Modifier.size(44.dp).clip(CircleShape).clickable { onPlay(listOf(hotTrack), 0) }
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = S.playBtn, tint = Color.Black, modifier = Modifier.size(24.dp))
+                                }
+                            }
+                        }
                     }
                 }
             }

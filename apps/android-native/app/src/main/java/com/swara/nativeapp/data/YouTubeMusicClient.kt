@@ -127,14 +127,6 @@ class YouTubeMusicClient {
             if (topArtistsCountry.isNotEmpty()) {
                 out.add(Shelf("${s.topArtistsShelf} \u2022 $countryName", topArtistsCountry, isList = false))
             }
-            val topGlobal = runCatching {
-                fetchPlaylistTracks("VLPL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4i", hl, "US").take(12)
-            }.getOrDefault(emptyList()).ifEmpty {
-                runCatching { searchTracks("Global Top 50 Songs", hl, "US").take(10) }.getOrDefault(emptyList())
-            }
-            if (topGlobal.isNotEmpty()) {
-                out.add(Shelf(s.topSongsGlobal, topGlobal, isList = false))
-            }
             out
         }
 

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://swaramusic.github.io/Swara/sitemap.xml
