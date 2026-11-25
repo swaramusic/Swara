@@ -3,11 +3,13 @@ package com.swara.nativeapp
 import com.swara.nativeapp.data.YouTubeMusicClient
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeFalse
 import org.junit.Test
 
 class StreamExtractTest {
     @Test
     fun resolvesAudioWithoutLogin() = runBlocking {
+        assumeFalse("Skip live YouTube network check on CI datacenter IPs", System.getenv("CI") == "true")
         val yt = YouTubeMusicClient()
         val res1 = yt.resolveAudioUrl("dQw4w9WgXcQ")
         println("dQw4w9WgXcQ -> $res1")
