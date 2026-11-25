@@ -16,8 +16,24 @@ android {
         versionName = "1.0.0"
     }
 
+    signingConfigs {
+        create("release") {
+            val ksPath = System.getenv("SWARA_KEYSTORE_PATH")
+            if (!ksPath.isNullOrBlank() && file(ksPath).exists()) {
+                storeFile = file(ksPath)
+                storePassword = System.getenv("SWARA_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("SWARA_KEY_ALIAS")
+                keyPassword = System.getenv("SWARA_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            val ksPath = System.getenv("SWARA_KEYSTORE_PATH")
+            if (!ksPath.isNullOrBlank() && file(ksPath).exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

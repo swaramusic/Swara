@@ -912,13 +912,20 @@ fun SwaraNativeApp(
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier
+                                            .weight(1f)
                                             .clip(RoundedCornerShape(22.dp))
                                             .background(if (selected) TextInk.copy(alpha = 0.14f) else Color.Transparent)
                                             .clickable { activeTab = tab; isBarCollapsed = false }
-                                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                                            .padding(horizontal = 2.dp, vertical = 5.dp)
                                     ) {
                                         Icon(icon, contentDescription = navTabLabel(tab), tint = if (selected) primaryColor else TextInk.copy(alpha = 0.65f), modifier = Modifier.size(20.dp).scale(iconScale))
-                                        Text(navTabLabel(tab), fontSize = 10.sp, color = if (selected) TextInk else TextInk.copy(alpha = 0.65f))
+                                        Text(
+                                            navTabLabel(tab),
+                                            fontSize = 10.sp,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            color = if (selected) TextInk else TextInk.copy(alpha = 0.65f)
+                                        )
                                     }
                                 }
                             }
@@ -3713,6 +3720,7 @@ private fun AboutOverlay(
     var updateStatus by remember { mutableStateOf("Tap to check latest GitHub release") }
     var updateUrl by remember { mutableStateOf<String?>(null) }
     var showDevSheet by remember { mutableStateOf(false) }
+    var showSupportSheet by remember { mutableStateOf(false) }
 
     val openUrl: (String) -> Unit = { url ->
         runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
@@ -3885,6 +3893,26 @@ private fun AboutOverlay(
             }
         }
 
+        // Support / Buy me a coffee + QRIS
+        Surface(
+            color = primaryColor.copy(alpha = 0.18f),
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable { showSupportSheet = true }
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(Icons.Default.Favorite, contentDescription = null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Buy me a coffee / Support", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextInk)
+                    Text("QRIS, Saweria & dukungan pengembangan Swara", fontSize = 12.sp, color = TextInk.copy(alpha = 0.68f))
+                }
+                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextInk.copy(alpha = 0.55f))
+            }
+        }
+
         Spacer(Modifier.height(6.dp))
         Text(
             "Swara is licensed under GNU GPL-3.0",
@@ -3894,6 +3922,55 @@ private fun AboutOverlay(
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (showSupportSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showSupportSheet = false },
+            containerColor = CardDark,
+            contentColor = TextInk,
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Support Swara", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextInk)
+                Text(
+                    "Dukung pengembangan Swara lewat QRIS (GoPay, OVO, DANA, ShopeePay, Mobile Banking) atau platform donasi:",
+                    fontSize = 13.sp,
+                    color = TextInk.copy(alpha = 0.7f)
+                )
+                FilledTonalButton(
+                    onClick = { showSupportSheet = false; openUrl("https://swaramusic.github.io/Swara/#support") },
+                    shape = RoundedCornerShape(50),
+                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = primaryColor, contentColor = Color.White),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.QrCode2, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Buka QRIS (Web Support)", fontWeight = FontWeight.Bold)
+                }
+                OutlinedButton(
+                    onClick = { showSupportSheet = false; openUrl("https://saweria.co/tirtadhi") },
+                    shape = RoundedCornerShape(50),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, TextInk.copy(alpha = 0.22f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextInk),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Saweria (QRIS / E-Wallet)", fontWeight = FontWeight.SemiBold)
+                }
+                OutlinedButton(
+                    onClick = { showSupportSheet = false; openUrl("https://buymeacoffee.com/tirtadhi") },
+                    shape = RoundedCornerShape(50),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, TextInk.copy(alpha = 0.22f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextInk),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Buy Me a Coffee", fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+        }
     }
 
     if (showDevSheet) {
