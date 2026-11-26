@@ -45,11 +45,11 @@ class SwaraCoreLogicTest {
         val ytRegex = Regex("[?&]list=([A-Za-z0-9_-]+)")
         assertEquals(
             "37i9dQZF1DXcBWIGoYBM5M",
-            spRegex.find("https://open.spotify.com/intl-id/playlist/37i9dQZF1DXcBWIGoYBM5M?si=123")?.groupValues?.get(1)
+            spRegex.find("https://open.spotify.com/intl-id/playlist/37i9dQZF1DXcBWIGoYBM5M?si=123")?.groupValues?.get(1),
         )
         assertEquals(
             "PLDD6QT7xyzfI",
-            ytRegex.find("https://music.youtube.com/playlist?list=PLDD6QT7xyzfI&si=abc")?.groupValues?.get(1)
+            ytRegex.find("https://music.youtube.com/playlist?list=PLDD6QT7xyzfI&si=abc")?.groupValues?.get(1),
         )
     }
 
@@ -63,11 +63,54 @@ class SwaraCoreLogicTest {
     }
 
     @Test
+    fun buildShuffledQueue_with_single_track_returns_same_list() {
+        val tracks = listOf(Track("id1", "Solo", "Artist", ""))
+        val shuffled = buildShuffledQueue(tracks, 0)
+        assertEquals(1, shuffled.size)
+        assertEquals("id1", shuffled.first().id)
+    }
+
+    @Test
+    fun buildShuffledQueue_with_index_zero_keeps_first_track() {
+        val tracks = (1..4).map { Track("id$it", "Song $it", "Artist $it", "") }
+        val shuffled = buildShuffledQueue(tracks, 0)
+        assertEquals(4, shuffled.size)
+        assertEquals("id1", shuffled.first().id)
+    }
+
+    @Test
     fun sanitizeRemoteArtworkUrl_allows_only_trusted_https_hosts() {
         val valid = "https://i.ytimg.com/vi/abc123/hqdefault.jpg"
         assertEquals(valid, sanitizeRemoteArtworkUrl(valid))
         assertEquals("", sanitizeRemoteArtworkUrl("http://i.ytimg.com/vi/abc123/hqdefault.jpg"))
         assertEquals("", sanitizeRemoteArtworkUrl("https://evil.example.com/a.jpg"))
         assertEquals("", sanitizeRemoteArtworkUrl("not a url"))
+    }
+
+    @Test
+    fun sanitizeRemoteArtworkUrl_allows_all_trusted_hosts() {
+        val trustedUrls = listOf(
+            "https://i.ytimg.com/vi/abc/hq.jpg",
+            "https://lh3.googleusercontent.com/abc",
+            "https://yt3.googleusercontent.com/abc",
+            "https://music.youtube.com/thumbnail/abc",
+        )
+        for (url in trustedUrls) {
+            assertEquals("Expected $url to pass", url, sanitizeRemoteArtworkUrl(url))
+        }
+    }
+
+    @Test
+    fun playlist_url_regex_handles_edge_cases() {
+        val spRegex = Regex("spotify\\.com/(?:intl-[^/]+/)?playlist/([A-Za-z0-9]+)")
+        val ytRegex = Regex("[?&]list=([A-Za-z0-9_-]+)")
+        // No match cases
+        assertNull(spRegex.find("https://open.spotify.com/track/abc"))
+        assertNull(ytRegex.find("https://music.youtube.com/watch?v=abc"))
+        // Direct playlist without intl
+        assertEquals(
+            "ABC123",
+            spRegex.find("https://open.spotify.com/playlist/ABC123")?.groupValues?.get(1),
+        )
     }
 }
