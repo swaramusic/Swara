@@ -632,12 +632,19 @@ internal fun StatsScreen(
     }
     val progress = (streakDays.toFloat() / nextGoal.toFloat()).coerceIn(0.08f, 1f)
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 164.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item { Text(S.statsTitle, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = TextInk) }
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text(
+            S.statsTitle,
+            fontSize = 26.sp,
+            fontWeight = FontWeight.Bold,
+            color = TextInk,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp)
+        )
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 164.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
 
         // Recap Row (clean Material 3 flat row)
         item {
@@ -830,6 +837,7 @@ internal fun StatsScreen(
                 }
             }
         }
+    }
     }
 }
 

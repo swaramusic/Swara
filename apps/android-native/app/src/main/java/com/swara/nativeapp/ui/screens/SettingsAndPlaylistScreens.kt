@@ -145,14 +145,22 @@ internal fun SettingsScreen(
     val currentLangLabel = SUPPORTED_LANGUAGES.find { it.first == language }?.second ?: language
     val currentCountryLabel = SUPPORTED_COUNTRIES.find { it.first == country }?.let { "${it.first} \u2022 ${it.second}" } ?: country
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text(S.settingsTitle, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = TextInk, modifier = Modifier.padding(bottom = 6.dp))
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text(
+            S.settingsTitle,
+            fontSize = 26.sp,
+            fontWeight = FontWeight.Bold,
+            color = TextInk,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp)
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
 
         // 1. Appearance (Theme, Accent, Dynamic Island) - flat Material 3 accordion, zero cards
         SettingsGroupHeader(
@@ -400,6 +408,7 @@ internal fun SettingsScreen(
             onClick = onOpenAbout
         )
         Spacer(Modifier.height(140.dp))
+    }
     }
 
     if (showColorPicker) {

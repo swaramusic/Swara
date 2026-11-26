@@ -123,30 +123,29 @@ internal fun HomeScreen(
     onOpenStats: () -> Unit,
     onRefresh: () -> Unit,
 ) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 140.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        item(key = "home_header") {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    S.home,
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = onOpenHistory) {
-                    Icon(Icons.Default.History, contentDescription = S.recentPlayed, tint = TextInk)
-                }
-                IconButton(onClick = onOpenListenTogether) {
-                    Icon(Icons.Default.Group, contentDescription = S.listenTogetherMenu, tint = TextInk)
-                }
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                S.home,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = onOpenHistory) {
+                Icon(Icons.Default.History, contentDescription = S.recentPlayed, tint = TextInk)
+            }
+            IconButton(onClick = onOpenListenTogether) {
+                Icon(Icons.Default.Group, contentDescription = S.listenTogetherMenu, tint = TextInk)
             }
         }
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            contentPadding = PaddingValues(top = 6.dp, bottom = 140.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
 
         // SoundCloud-inspired "Your likes" + 2x2 quick-pick grid
         val quickGrid = recent.filter { it.browseId.isBlank() }.ifEmpty {
@@ -407,6 +406,7 @@ internal fun HomeScreen(
                 }
             }
         }
+    }
     }
 }
 
