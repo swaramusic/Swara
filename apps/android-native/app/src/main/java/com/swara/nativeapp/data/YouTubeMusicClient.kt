@@ -533,7 +533,7 @@ class YouTubeMusicClient {
         }
     }
 
-    private fun parseLrc(lrc: String): List<LyricLine> {
+    internal fun parseLrc(lrc: String): List<LyricLine> {
         val regex = Regex("^\\[(\\d{1,2}):(\\d{2})(?:\\.(\\d{1,3}))?](.*)$")
         val out = mutableListOf<LyricLine>()
         for (rawLine in lrc.lines()) {
@@ -626,6 +626,62 @@ class YouTubeMusicClient {
             } catch (e: Exception) {
                 e.message ?: "Timeout/jaringan"
             } else "VR skipped"
+
+            // Secondary client rotation: IOS client context
+            if (!preferNewPipe) {
+                runCatching {
+                    val iosPayload = JSONObject().apply {
+                        put("videoId", videoId)
+                        put(
+                            "context",
+                            JSONObject().apply {
+                                put(
+                                    "client",
+                                    JSONObject().apply {
+                                        put("clientName", "IOS")
+                                        put("clientVersion", "19.29.1")
+                                        put("deviceModel", "iPhone16,2")
+                                        put("hl", hl)
+                                        put("gl", gl)
+                                    }
+                                )
+                            }
+                        )
+                    }
+                    val iosReq = Request.Builder()
+                        .url("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+                        .post(iosPayload.toString().toRequestBody(jsonMediaType))
+                        .header("Content-Type", "application/json")
+                        .header("User-Agent", "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)")
+                        .build()
+                    client.newCall(iosReq).execute().use { res ->
+                        val raw = res.body?.string().orEmpty()
+                        if (res.isSuccessful && raw.isNotBlank()) {
+                            val json = JSONObject(raw)
+                            val formats = json.optJSONObject("streamingData")?.optJSONArray("adaptiveFormats")
+                            if (formats != null) {
+                                data class IosAudio(val url: String, val isMp4: Boolean, val bitrate: Int)
+                                val candidates = mutableListOf<IosAudio>()
+                                for (i in 0 until formats.length()) {
+                                    val f = formats.optJSONObject(i) ?: continue
+                                    val mime = f.optString("mimeType")
+                                    val url = f.optString("url")
+                                    val br = f.optInt("bitrate", 0)
+                                    if (url.isBlank() || !mime.startsWith("audio/")) continue
+                                    candidates.add(IosAudio(url, mime.contains("audio/mp4"), br))
+                                }
+                                val pool = candidates.filter { it.isMp4 }.ifEmpty { candidates }
+                                val chosen = when (quality) {
+                                    "low" -> pool.minByOrNull { it.bitrate }
+                                    "medium" -> pool.minByOrNull { kotlin.math.abs(it.bitrate - 128_000) }
+                                    else -> pool.maxByOrNull { it.bitrate }
+                                }
+                                if (chosen != null) return@withContext Result.success(chosen.url)
+                            }
+                        }
+                    }
+                }
+            }
 
             // Fallback to NewPipeExtractor (local signature/stream extraction, zero login/cookie)
             try {
