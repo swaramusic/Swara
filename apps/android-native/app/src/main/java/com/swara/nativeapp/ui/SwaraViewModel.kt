@@ -115,24 +115,24 @@ data class SwaraUiState(
 )
 
 class SwaraViewModel(app: Application) : AndroidViewModel(app) {
-    private val yt = YouTubeMusicClient()
-    private val prefs = app.getSharedPreferences("swara_native_prefs", 0).also {
+    internal val yt = YouTubeMusicClient()
+    internal val prefs = app.getSharedPreferences("swara_native_prefs", 0).also {
         if (it.contains("discord_token")) it.edit().remove("discord_token").apply()
     }
-    private val dlClient = okhttp3.OkHttpClient.Builder()
+    internal val dlClient = okhttp3.OkHttpClient.Builder()
         .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
         .callTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
-    private val sseClient = okhttp3.OkHttpClient.Builder()
+    internal val sseClient = okhttp3.OkHttpClient.Builder()
         .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
         .callTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 
-    private val _ui = MutableStateFlow(
+    internal val _ui = MutableStateFlow(
         SwaraUiState(
             likedTracks = loadTrackList("liked"),
             recentTracks = loadTrackList("recent"),
@@ -180,13 +180,13 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
     )
     val ui: StateFlow<SwaraUiState> = _ui.asStateFlow()
 
-    private val _progress = MutableStateFlow(0L to 0L)
+    internal val _progress = MutableStateFlow(0L to 0L)
     val progress: StateFlow<Pair<Long, Long>> = _progress.asStateFlow()
 
-    private var controller: MediaController? = null
+    internal var controller: MediaController? = null
     private var lastLyricsTrackId: String? = null
     private var sleepJob: Job? = null
-    private var listenJob: Job? = null
+    internal var listenJob: Job? = null
     private var unshuffledQueue: List<Track> = emptyList()
 
     init {
@@ -871,171 +871,8 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private val safeIdRegex = Regex("^[A-Za-z0-9_-]{1,64}$")
-    private val safeRoomRegex = Regex("^[A-Z0-9]{4,32}$")
-    private val allowedArtworkHosts = setOf(
-        "i.ytimg.com",
-        "lh3.googleusercontent.com",
-        "yt3.googleusercontent.com",
-        "music.youtube.com"
-    )
-
-    private fun safeDownloadFile(trackId: String): java.io.File? {
-        if (!safeIdRegex.matches(trackId)) return null
-        val dir = java.io.File(getApplication<Application>().filesDir, "downloads").apply { mkdirs() }
-        val target = java.io.File(dir, "$trackId.m4a")
-        return if (target.canonicalPath.startsWith(dir.canonicalPath + java.io.File.separator)) target else null
-    }
-
-    private fun sanitizeRemoteArtworkUrl(raw: String): String {
-        val parsed = runCatching { java.net.URI(raw) }.getOrNull() ?: return ""
-        val host = parsed.host?.lowercase() ?: return ""
-        return if (parsed.scheme == "https" && host in allowedArtworkHosts) raw else ""
-    }
-
-    fun createListenRoom() {
-        val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-        val rng = java.security.SecureRandom()
-        val code = buildString(10) {
-            repeat(10) { append(alphabet[rng.nextInt(alphabet.length)]) }
-        }
-        listenJob?.cancel()
-        _ui.update { it.copy(listenRoomCode = code, listenIsHost = true, listenPeerCount = 0, listenStatus = "Host aktif • Kode: $code • 0 bergabung") }
-        val mc = controller
-        broadcastRoomState(_ui.value.currentTrack, mc?.currentPosition ?: 0L, mc?.isPlaying ?: false)
-        listenJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val peers = java.util.concurrent.ConcurrentHashMap<String, Long>()
-            while (kotlinx.coroutines.currentCoroutineContext()[Job]?.isActive == true) {
-                runCatching {
-                    val req = okhttp3.Request.Builder().url("https://ntfy.sh/swara-room-$code/sse").build()
-                    sseClient.newCall(req).execute().use { res ->
-                        val reader = res.body?.byteStream()?.bufferedReader() ?: return@use
-                        while (true) {
-                            val line = reader.readLine() ?: break
-                            if (!line.startsWith("data:")) continue
-                            val raw = line.removePrefix("data:").trim()
-                            val outer = runCatching { org.json.JSONObject(raw) }.getOrNull() ?: continue
-                            val msg = outer.optString("message")
-                            if (!msg.startsWith("{")) continue
-                            val obj = runCatching { org.json.JSONObject(msg) }.getOrNull() ?: continue
-                            val ev = obj.optString("ev")
-                            val peer = obj.optString("peer")
-                            if ((ev == "join" || ev == "ping") && peer.isNotBlank()) {
-                                val now = System.currentTimeMillis()
-                                peers[peer] = now
-                                peers.entries.removeIf { now - it.value > 50_000L }
-                                val cnt = peers.size
-                                _ui.update { it.copy(listenPeerCount = cnt, listenStatus = "Host aktif • Kode: $code • $cnt bergabung") }
-                                if (ev == "join") {
-                                    val cur = _ui.value.currentTrack
-                                    broadcastRoomState(cur, _progress.value.first, _ui.value.isPlaying)
-                                }
-                            } else if (ev == "leave" && peer.isNotBlank()) {
-                                peers.remove(peer)
-                                val cnt = peers.size
-                                _ui.update { it.copy(listenPeerCount = cnt, listenStatus = "Host aktif • Kode: $code • $cnt bergabung") }
-                            }
-                        }
-                    }
-                }
-                kotlinx.coroutines.delay(1500L)
-            }
-        }
-    }
-
-    fun joinListenRoom(rawCode: String) {
-        val code = rawCode.trim().uppercase()
-        if (!safeRoomRegex.matches(code)) return
-        listenJob?.cancel()
-        val peerId = "p_${System.currentTimeMillis()}_${(100..999).random()}"
-        _ui.update { it.copy(listenRoomCode = code, listenIsHost = false, listenPeerCount = 0, listenStatus = "Menghubungkan ke ruang $code...") }
-        listenJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val heartbeat = launch {
-                sendPeerEvent(code, "join", peerId)
-                while (true) {
-                    kotlinx.coroutines.delay(20_000L)
-                    sendPeerEvent(code, "ping", peerId)
-                }
-            }
-            try {
-                while (kotlinx.coroutines.currentCoroutineContext()[Job]?.isActive == true) {
-                    try {
-                        val req = okhttp3.Request.Builder().url("https://ntfy.sh/swara-room-$code/sse").build()
-                        sseClient.newCall(req).execute().use { res ->
-                            val reader = res.body?.byteStream()?.bufferedReader() ?: return@use
-                            _ui.update { it.copy(listenStatus = "Terhubung ke ruang $code") }
-                            while (true) {
-                                val line = reader.readLine() ?: break
-                                if (!line.startsWith("data:")) continue
-                                val raw = line.removePrefix("data:").trim()
-                                val outer = runCatching { org.json.JSONObject(raw) }.getOrNull() ?: continue
-                                val msg = outer.optString("message")
-                                if (!msg.startsWith("{")) continue
-                                val stateObj = runCatching { org.json.JSONObject(msg) }.getOrNull() ?: continue
-                                val vid = stateObj.optString("id")
-                                if (!safeIdRegex.matches(vid)) continue
-                                val title = stateObj.optString("t").take(200)
-                                val artist = stateObj.optString("a").take(200)
-                                val img = sanitizeRemoteArtworkUrl(stateObj.optString("img"))
-                                val pos = stateObj.optLong("pos", 0L).coerceAtLeast(0L)
-                                val playing = stateObj.optBoolean("play", true)
-                                viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                                    val mc = controller
-                                    if (_ui.value.currentTrack?.id != vid) {
-                                        playFromList(listOf(Track(vid, title, artist, img)), 0)
-                                    } else if (mc != null) {
-                                        if (kotlin.math.abs(mc.currentPosition - pos) > 3500) mc.seekTo(pos)
-                                        if (playing && !mc.isPlaying) mc.play()
-                                        else if (!playing && mc.isPlaying) mc.pause()
-                                    }
-                                }
-                            }
-                        }
-                    } catch (_: Exception) {
-                        _ui.update { it.copy(listenStatus = "Menyambung ulang ke $code...") }
-                    }
-                    kotlinx.coroutines.delay(1500L)
-                }
-            } finally {
-                heartbeat.cancel()
-                sendPeerEvent(code, "leave", peerId)
-            }
-        }
-    }
-
-    private fun sendPeerEvent(code: String, ev: String, peerId: String) {
-        val payload = org.json.JSONObject().put("ev", ev).put("peer", peerId).toString()
-        val req = okhttp3.Request.Builder()
-            .url("https://ntfy.sh/swara-room-$code")
-            .post(okhttp3.RequestBody.create(null, payload))
-            .build()
-        runCatching { dlClient.newCall(req).execute().close() }
-    }
-
-    fun leaveListenRoom() {
-        listenJob?.cancel()
-        _ui.update { it.copy(listenRoomCode = null, listenIsHost = false, listenPeerCount = 0, listenStatus = null) }
-    }
-
-    private fun broadcastRoomState(track: Track?, posMs: Long, playing: Boolean) {
-        val code = _ui.value.listenRoomCode ?: return
-        if (track == null) return
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val payload = org.json.JSONObject()
-                .put("id", track.id)
-                .put("t", track.title)
-                .put("a", track.artist)
-                .put("img", track.artworkUrl)
-                .put("pos", posMs)
-                .put("play", playing)
-                .toString()
-            val req = okhttp3.Request.Builder()
-                .url("https://ntfy.sh/swara-room-$code")
-                .post(okhttp3.RequestBody.create(null, payload))
-                .build()
-            runCatching { dlClient.newCall(req).execute().close() }
-        }
-    }
+    internal val safeIdRegex = Regex("^[A-Za-z0-9_-]{1,64}$")
+    internal val safeRoomRegex = Regex("^[A-Z0-9]{4,32}$")
 
     fun removeTrackFromPlaylist(playlistId: String, trackId: String) {
         val next = _ui.value.playlists.map { pl ->
@@ -1134,371 +971,14 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setDownloadTreeUri(uriStr: String) {
-        prefs.edit().putString("download_tree_uri", uriStr).apply()
-        _ui.update { it.copy(downloadTreeUri = uriStr) }
-    }
-
-    private fun copyToUserFolder(track: Track, src: java.io.File, treeUriStr: String) {
-        if (treeUriStr.isBlank()) return
-        runCatching {
-            val ctx = getApplication<Application>()
-            val treeUri = android.net.Uri.parse(treeUriStr)
-            val docId = android.provider.DocumentsContract.getTreeDocumentId(treeUri)
-            val parentDocUri = android.provider.DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
-            val safeName = "${track.title} - ${track.artist}".replace(Regex("[\\\\/:*?\"<>|]"), "_").take(90) + ".m4a"
-            val created = android.provider.DocumentsContract.createDocument(
-                ctx.contentResolver,
-                parentDocUri,
-                "audio/mp4",
-                safeName
-            ) ?: return
-            ctx.contentResolver.openOutputStream(created)?.use { out ->
-                src.inputStream().use { inp -> inp.copyTo(out) }
-            }
-        }
-    }
-
-    private fun notifyDownloadProgress(
-        done: Int,
-        total: Int,
-        title: String,
-        finished: Boolean = false,
-        succeeded: Int = done,
-    ) {
-        runCatching {
-            val ctx = getApplication<Application>()
-            val nm = ctx.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
-            val progChId = "swara_downloads"
-            val doneChId = "swara_downloads_done"
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                if (nm.getNotificationChannel(progChId) == null) {
-                    nm.createNotificationChannel(
-                        android.app.NotificationChannel(
-                            progChId,
-                            "Progres Unduhan",
-                            android.app.NotificationManager.IMPORTANCE_LOW
-                        )
-                    )
-                }
-                if (nm.getNotificationChannel(doneChId) == null) {
-                    nm.createNotificationChannel(
-                        android.app.NotificationChannel(
-                            doneChId,
-                            "Unduhan Selesai",
-                            android.app.NotificationManager.IMPORTANCE_DEFAULT
-                        )
-                    )
-                }
-            }
-            if (finished) {
-                nm.cancel(4201)
-                val doneBuilder = androidx.core.app.NotificationCompat.Builder(ctx, doneChId)
-                    .setSmallIcon(
-                        if (succeeded > 0) android.R.drawable.stat_sys_download_done
-                        else android.R.drawable.stat_notify_error
-                    )
-                    .setContentTitle(if (succeeded > 0) "Unduhan selesai" else "Unduhan gagal")
-                    .setContentText(
-                        if (succeeded > 0) "$succeeded / $total lagu berhasil disimpan"
-                        else "Tidak ada lagu yang berhasil diunduh"
-                    )
-                    .setAutoCancel(true)
-                nm.notify(4202, doneBuilder.build())
-            } else {
-                val builder = androidx.core.app.NotificationCompat.Builder(ctx, progChId)
-                    .setSmallIcon(android.R.drawable.stat_sys_download)
-                    .setOnlyAlertOnce(true)
-                    .setOngoing(true)
-                    .setContentTitle("Mengunduh $done / $total lagu")
-                    .setContentText(title)
-                    .setProgress(total.coerceAtLeast(1), done.coerceIn(0, total), false)
-                nm.notify(4201, builder.build())
-            }
-        }
-    }
-
-    private fun fetchAudioToFile(url: String, dest: java.io.File) {
-        if (!url.startsWith("https://", ignoreCase = true)) {
-            throw IllegalArgumentException("URL unduhan tidak valid")
-        }
-        val vrUa = "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
-        val webUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        val maxBytes = 100L * 1024L * 1024L
-        val chunkSize = 512L * 1024L
-
-        fun tryChunkedDownload(ua: String): Int {
-            var offset = 0L
-            var totalSize = -1L
-            dest.outputStream().use { output ->
-                while (true) {
-                    val endByte = if (totalSize > 0) minOf(offset + chunkSize - 1, totalSize - 1) else offset + chunkSize - 1
-                    val req = okhttp3.Request.Builder()
-                        .url(url)
-                        .header("User-Agent", ua)
-                        .header("Range", "bytes=$offset-$endByte")
-                        .build()
-                    dlClient.newCall(req).execute().use { res ->
-                        if (res.code == 403 && offset == 0L) return 403
-                        if (!res.isSuccessful && res.code != 206) return res.code
-                        val body = res.body ?: throw Exception("Respons kosong")
-                        if (res.code == 200) {
-                            if (body.contentLength() > maxBytes) throw Exception("Ukuran file terlalu besar")
-                            body.byteStream().use { input ->
-                                val buf = ByteArray(8192)
-                                var total = 0L
-                                while (true) {
-                                    val read = input.read(buf)
-                                    if (read == -1) break
-                                    total += read
-                                    if (total > maxBytes) throw Exception("Ukuran file melebihi batas")
-                                    output.write(buf, 0, read)
-                                }
-                            }
-                            return 200
-                        }
-                        val cr = res.header("Content-Range").orEmpty()
-                        val parsedTotal = cr.substringAfter('/', "").toLongOrNull()
-                        if (parsedTotal != null && parsedTotal > 0L) {
-                            if (parsedTotal > maxBytes) throw Exception("Ukuran file terlalu besar")
-                            totalSize = parsedTotal
-                        }
-                        var chunkWritten = 0L
-                        body.byteStream().use { input ->
-                            val buf = ByteArray(8192)
-                            while (true) {
-                                val read = input.read(buf)
-                                if (read == -1) break
-                                chunkWritten += read
-                                if (offset + chunkWritten > maxBytes) throw Exception("Ukuran file melebihi batas")
-                                output.write(buf, 0, read)
-                            }
-                        }
-                        offset += chunkWritten
-                        if (chunkWritten == 0L || (totalSize > 0 && offset >= totalSize)) {
-                            return 200
-                        }
-                    }
-                }
-            }
-        }
-
-        val code1 = tryChunkedDownload(vrUa)
-        if (code1 == 200) {
-            if (dest.length() < 1024L) throw Exception("File unduhan kosong")
-            return
-        }
-        if (code1 == 403) {
-            val code2 = tryChunkedDownload(webUa)
-            if (code2 == 200) {
-                if (dest.length() < 1024L) throw Exception("File unduhan kosong")
-                return
-            }
-            throw Exception("HTTP $code2")
-        }
-        throw Exception("HTTP $code1")
-    }
-
-    fun dismissDownloadBanner() {
-        _ui.update { it.copy(downloadStatusBanner = null) }
-    }
-
-    fun downloadPlaylist(tracks: List<Track>, treeUriOverride: String? = null) {
-        val targets = tracks.filter { t ->
-            t.browseId.isBlank() &&
-                t.id !in _ui.value.downloadingIds &&
-                _ui.value.downloadedTracks.none { it.id == t.id }
-        }
-        if (targets.isEmpty()) {
-            _ui.update { it.copy(downloadStatusBanner = "Semua lagu sudah ada di Downloaded") }
-            return
-        }
-        val folderUri = treeUriOverride ?: _ui.value.downloadTreeUri
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val pm = getApplication<Application>().getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
-            val wl = runCatching { pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Swara:BatchDownload")?.apply { acquire(30 * 60 * 1000L) } }.getOrNull()
-            val totalCount = targets.size
-            var doneCount = 0
-            var succeededCount = 0
-            var lastErr = ""
-            try {
-                _ui.update {
-                    it.copy(
-                        downloadDone = 0,
-                        downloadTotal = totalCount,
-                        downloadCurrentTitle = targets.firstOrNull()?.title.orEmpty(),
-                        downloadStatusBanner = null
-                    )
-                }
-                notifyDownloadProgress(0, totalCount, targets.firstOrNull()?.title.orEmpty(), finished = false)
-                targets.forEach { track ->
-                    val dest = safeDownloadFile(track.id) ?: run {
-                        doneCount++
-                        return@forEach
-                    }
-                    _ui.update {
-                        it.copy(
-                            downloadingIds = it.downloadingIds + track.id,
-                            downloadCurrentTitle = track.title
-                        )
-                    }
-                    notifyDownloadProgress(doneCount, totalCount, track.title, finished = false)
-                    try {
-                        try {
-                            val url = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality).getOrThrow()
-                            fetchAudioToFile(url, dest)
-                        } catch (_: Exception) {
-                            runCatching { dest.delete() }
-                            kotlinx.coroutines.delay(350)
-                            val retryUrl = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality, preferNewPipe = true).getOrThrow()
-                            fetchAudioToFile(retryUrl, dest)
-                        }
-                        copyToUserFolder(track, dest, folderUri)
-                        succeededCount++
-                        doneCount++
-                        val updated = listOf(track) + _ui.value.downloadedTracks.filterNot { it.id == track.id }
-                        _ui.update {
-                            it.copy(
-                                downloadedTracks = updated,
-                                downloadingIds = it.downloadingIds - track.id,
-                                downloadDone = doneCount
-                            )
-                        }
-                        saveTrackList("downloads", updated)
-                    } catch (e: Exception) {
-                        runCatching { dest.delete() }
-                        lastErr = e.message ?: "Error"
-                        doneCount++
-                        _ui.update {
-                            it.copy(
-                                downloadingIds = it.downloadingIds - track.id,
-                                downloadDone = doneCount
-                            )
-                        }
-                    }
-                    notifyDownloadProgress(doneCount, totalCount, track.title, finished = false)
-                }
-                notifyDownloadProgress(doneCount, totalCount, "", finished = true, succeeded = succeededCount)
-                val banner = when {
-                    succeededCount == totalCount -> "Selesai mengunduh $succeededCount / $totalCount lagu"
-                    succeededCount > 0 -> "Unduhan selesai: $succeededCount / $totalCount berhasil (${totalCount - succeededCount} gagal: $lastErr)"
-                    else -> "Gagal mengunduh ($lastErr)"
-                }
-                _ui.update {
-                    it.copy(
-                        downloadDone = 0,
-                        downloadTotal = 0,
-                        downloadCurrentTitle = "",
-                        downloadStatusBanner = banner
-                    )
-                }
-            } finally {
-                runCatching { if (wl?.isHeld == true) wl.release() }
-            }
-        }
-    }
-
-    fun downloadTrack(track: Track, treeUriOverride: String? = null) {
-        if (track.browseId.isNotBlank() || track.id in _ui.value.downloadingIds) return
-        if (_ui.value.downloadedTracks.any { it.id == track.id }) {
-            _ui.update { it.copy(downloadStatusBanner = "${track.title} sudah tersimpan di Downloaded") }
-            return
-        }
-        val dest = safeDownloadFile(track.id) ?: return
-        val folderUri = treeUriOverride ?: _ui.value.downloadTreeUri
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            _ui.update {
-                it.copy(
-                    downloadingIds = it.downloadingIds + track.id,
-                    downloadDone = 0,
-                    downloadTotal = 1,
-                    downloadCurrentTitle = track.title,
-                    downloadStatusBanner = null
-                )
-            }
-            notifyDownloadProgress(0, 1, track.title, finished = false)
-            try {
-                try {
-                    val url = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality).getOrThrow()
-                    fetchAudioToFile(url, dest)
-                } catch (_: Exception) {
-                    runCatching { dest.delete() }
-                    kotlinx.coroutines.delay(350)
-                    val retryUrl = yt.resolveAudioUrl(track.id, quality = _ui.value.audioQuality, preferNewPipe = true).getOrThrow()
-                    fetchAudioToFile(retryUrl, dest)
-                }
-                copyToUserFolder(track, dest, folderUri)
-                val updated = listOf(track) + _ui.value.downloadedTracks.filterNot { it.id == track.id }
-                _ui.update {
-                    it.copy(
-                        downloadedTracks = updated,
-                        downloadingIds = it.downloadingIds - track.id,
-                        downloadDone = 1,
-                        downloadStatusBanner = "Selesai mengunduh: ${track.title}"
-                    )
-                }
-                saveTrackList("downloads", updated)
-                notifyDownloadProgress(1, 1, track.title, finished = true, succeeded = 1)
-            } catch (e: Exception) {
-                runCatching { dest.delete() }
-                notifyDownloadProgress(1, 1, track.title, finished = true, succeeded = 0)
-                _ui.update {
-                    it.copy(
-                        downloadingIds = it.downloadingIds - track.id,
-                        errorMessage = "Gagal unduh: ${e.message ?: "Error"}"
-                    )
-                }
-            } finally {
-                _ui.update { it.copy(downloadDone = 0, downloadTotal = 0, downloadCurrentTitle = "") }
-            }
-        }
-    }
-
-    fun deleteDownload(trackId: String) {
-        safeDownloadFile(trackId)?.delete()
-        val updated = _ui.value.downloadedTracks.filterNot { it.id == trackId }
-        _ui.update { it.copy(downloadedTracks = updated) }
-        saveTrackList("downloads", updated)
-    }
-
     fun clearListenHistory() {
         saveTrackList("recent", emptyList())
         _ui.update { it.copy(recentTracks = emptyList()) }
     }
 
-    fun clearAllDownloads() {
-        _ui.value.downloadedTracks.forEach { safeDownloadFile(it.id)?.delete() }
-        val dlDir = getApplication<Application>().filesDir.resolve("downloads")
-        runCatching { dlDir.listFiles()?.forEach { it.delete() } }
-        saveTrackList("downloads", emptyList())
-        _ui.update { it.copy(downloadedTracks = emptyList()) }
-    }
-
-    fun setSongCacheEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean("song_cache_enabled", enabled).apply()
-        SwaraPlaybackService.songCacheEnabled = enabled
-        if (!enabled) clearSongCache()
-        _ui.update { it.copy(songCacheEnabled = enabled) }
-    }
-
-    fun setMaxSongCacheMb(mb: Int) {
-        val clamped = mb.coerceIn(128, 2048)
-        prefs.edit().putInt("max_song_cache_mb", clamped).apply()
-        SwaraPlaybackService.maxSongCacheMb = clamped
-        SwaraPlaybackService.enforceSongCacheLimit(getApplication())
-        _ui.update { it.copy(maxSongCacheMb = clamped) }
-    }
-
     fun setRomanizeLyrics(enabled: Boolean) {
         prefs.edit().putBoolean("romanize_lyrics", enabled).apply()
         _ui.update { it.copy(romanizeLyrics = enabled) }
-    }
-
-    fun clearSongCache() {
-        val app = getApplication<Application>()
-        runCatching { coil.Coil.imageLoader(app).memoryCache?.clear() }
-        runCatching { app.cacheDir.resolve("image_cache").deleteRecursively() }
-        runCatching { app.cacheDir.resolve("song_cache").deleteRecursively() }
     }
 
     private fun recordPlayStats(track: Track) {
@@ -1593,8 +1073,8 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
         if (curQueue.size > 1 && curTrack != null && mc != null) {
             if (next) {
                 unshuffledQueue = curQueue
-                val upcoming = curQueue.filterIndexed { i, _ -> i != curIdx }.shuffled()
-                val newQueue = listOf(curTrack) + upcoming
+                val newQueue = buildShuffledQueue(curQueue, curIdx)
+                val upcoming = newQueue.drop(1)
                 mc.shuffleModeEnabled = false
                 if (curIdx > 0) mc.removeMediaItems(0, curIdx)
                 if (mc.mediaItemCount > 1) mc.removeMediaItems(1, mc.mediaItemCount)
@@ -1638,7 +1118,7 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
         saveTrackList("liked", _ui.value.likedTracks)
     }
 
-    private fun saveTrackList(key: String, list: List<Track>) {
+    internal fun saveTrackList(key: String, list: List<Track>) {
         val arr = org.json.JSONArray()
         list.forEach {
             arr.put(org.json.JSONObject().put("id", it.id).put("t", it.title).put("a", it.artist).put("img", it.artworkUrl))
@@ -1716,3 +1196,24 @@ private fun MediaItem.toTrack(): Track = Track(
     artist = mediaMetadata.artist?.toString().orEmpty(),
     artworkUrl = mediaMetadata.artworkUri?.toString().orEmpty(),
 )
+
+private val allowedArtworkHosts = setOf(
+    "i.ytimg.com",
+    "lh3.googleusercontent.com",
+    "yt3.googleusercontent.com",
+    "music.youtube.com"
+)
+
+internal fun sanitizeRemoteArtworkUrl(raw: String): String {
+    val parsed = runCatching { java.net.URI(raw) }.getOrNull() ?: return ""
+    val host = parsed.host?.lowercase() ?: return ""
+    return if (parsed.scheme == "https" && host in allowedArtworkHosts) raw else ""
+}
+
+internal fun buildShuffledQueue(queue: List<Track>, currentIndex: Int): List<Track> {
+    if (queue.size <= 1) return queue
+    val idx = currentIndex.coerceIn(0, queue.lastIndex)
+    val current = queue[idx]
+    val upcoming = queue.filterIndexed { i, _ -> i != idx }.shuffled()
+    return listOf(current) + upcoming
+}
