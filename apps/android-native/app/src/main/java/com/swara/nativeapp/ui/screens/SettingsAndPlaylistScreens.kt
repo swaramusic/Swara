@@ -519,11 +519,16 @@ internal fun UserPlaylistOverlay(
     likedIds: Set<String>,
     downloadedIds: Set<String>,
     downloadingIds: Set<String>,
+    currentTrack: Track?,
+    isPlaying: Boolean,
     primaryColor: Color,
     onClose: () -> Unit,
     onPlay: (List<Track>, Int) -> Unit,
     onShufflePlay: (List<Track>) -> Unit,
     onPlayNextList: (List<Track>) -> Unit,
+    onTogglePlayPause: () -> Unit,
+    onNext: () -> Unit,
+    onOpenPlayer: () -> Unit,
     onToggleLike: (Track) -> Unit,
     onAddToQueue: (Track) -> Unit,
     onDownloadTrack: (Track) -> Unit,
@@ -563,12 +568,14 @@ internal fun UserPlaylistOverlay(
     }
     val allDownloaded = playlist.tracks.isNotEmpty() && playlist.tracks.all { it.id in downloadedIds }
     val anyDownloading = playlist.tracks.any { it.id in downloadingIds }
+    val playlistActive = currentTrack != null && displayedTracks.any { it.id == currentTrack.id }
 
     Surface(color = BgDark, modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
-            contentPadding = PaddingValues(bottom = 120.dp)
-        ) {
+        Box(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = if (currentTrack != null) 108.dp else 40.dp)
+            ) {
             item(key = "pl_top_bar") {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
@@ -643,7 +650,7 @@ internal fun UserPlaylistOverlay(
                                     Icon(
                                         if (allDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
                                         contentDescription = "Download Playlist",
-                                        tint = if (allDownloaded) primaryColor else TextInk,
+                                        tint = TextInk,
                                         modifier = Modifier.size(21.dp)
                                     )
                                 }
@@ -666,11 +673,17 @@ internal fun UserPlaylistOverlay(
                             color = TextInk,
                             shape = CircleShape,
                             modifier = Modifier.size(56.dp).clip(CircleShape).clickable {
-                                if (displayedTracks.isNotEmpty()) onPlay(displayedTracks, 0)
+                                if (playlistActive) onTogglePlayPause()
+                                else if (displayedTracks.isNotEmpty()) onPlay(displayedTracks, 0)
                             }
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = S.playBtn, tint = BgDark, modifier = Modifier.size(30.dp))
+                                Icon(
+                                    if (playlistActive && isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = S.playBtn,
+                                    tint = BgDark,
+                                    modifier = Modifier.size(30.dp)
+                                )
                             }
                         }
                         Surface(
@@ -702,6 +715,7 @@ internal fun UserPlaylistOverlay(
                     isDownloaded = t.id in downloadedIds,
                     isDownloading = t.id in downloadingIds,
                     primaryColor = primaryColor,
+                    isCurrent = currentTrack?.id == t.id,
                     onClick = { onPlay(displayedTracks, idx) },
                     onToggleLike = { onToggleLike(t) },
                     onAddToQueue = { onAddToQueue(t) },
@@ -709,6 +723,55 @@ internal fun UserPlaylistOverlay(
                     onSaveToPlaylist = { onSaveToPlaylist(t) },
                     onRemoveFromPlaylist = { onRemoveTrack(t) },
                 )
+            }
+        }
+
+            if (currentTrack != null) {
+                Surface(
+                    color = CardDark.copy(alpha = 0.94f),
+                    shape = RoundedCornerShape(28.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.16f)),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .clip(RoundedCornerShape(28.dp))
+                        .clickable(onClick = onOpenPlayer)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        AsyncImage(
+                            model = currentTrack.artworkUrl,
+                            contentDescription = currentTrack.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(40.dp).clip(RoundedCornerShape(10.dp))
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(currentTrack.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextInk, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(currentTrack.artist, fontSize = 11.sp, color = TextInk.copy(alpha = 0.68f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Surface(
+                            color = TextInk,
+                            shape = CircleShape,
+                            modifier = Modifier.size(36.dp).clip(CircleShape).clickable(onClick = onTogglePlayPause)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = "Play/Pause",
+                                    tint = BgDark,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        IconButton(onClick = onNext, modifier = Modifier.size(34.dp)) {
+                            Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = TextInk, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
             }
         }
     }

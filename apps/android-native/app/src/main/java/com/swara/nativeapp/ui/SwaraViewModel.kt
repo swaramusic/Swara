@@ -187,6 +187,7 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
     private var lastLyricsTrackId: String? = null
     private var sleepJob: Job? = null
     private var listenJob: Job? = null
+    private var unshuffledQueue: List<Track> = emptyList()
 
     init {
         _ui.update { it.copy(topSongs = loadTopSongs(), searchHistory = loadSearchHistory()) }
@@ -1584,7 +1585,37 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleShuffle() {
         val next = !_ui.value.shuffleEnabled
-        controller?.shuffleModeEnabled = next
+        val mc = controller
+        val curQueue = _ui.value.queue
+        val curIdx = _ui.value.currentIndex.coerceIn(0, (curQueue.size - 1).coerceAtLeast(0))
+        val curTrack = curQueue.getOrNull(curIdx)
+
+        if (curQueue.size > 1 && curTrack != null && mc != null) {
+            if (next) {
+                unshuffledQueue = curQueue
+                val upcoming = curQueue.filterIndexed { i, _ -> i != curIdx }.shuffled()
+                val newQueue = listOf(curTrack) + upcoming
+                mc.shuffleModeEnabled = false
+                if (curIdx > 0) mc.removeMediaItems(0, curIdx)
+                if (mc.mediaItemCount > 1) mc.removeMediaItems(1, mc.mediaItemCount)
+                if (upcoming.isNotEmpty()) mc.addMediaItems(upcoming.map { it.toMediaItem() })
+                _ui.update { it.copy(shuffleEnabled = true, queue = newQueue, currentIndex = 0) }
+                return
+            } else if (unshuffledQueue.isNotEmpty()) {
+                val restored = unshuffledQueue
+                val restoredIdx = restored.indexOfFirst { it.id == curTrack.id }.coerceAtLeast(0)
+                val before = restored.take(restoredIdx)
+                val after = restored.drop(restoredIdx + 1)
+                mc.shuffleModeEnabled = false
+                if (mc.mediaItemCount > 1) mc.removeMediaItems(1, mc.mediaItemCount)
+                if (after.isNotEmpty()) mc.addMediaItems(after.map { it.toMediaItem() })
+                if (before.isNotEmpty()) mc.addMediaItems(0, before.map { it.toMediaItem() })
+                unshuffledQueue = emptyList()
+                _ui.update { it.copy(shuffleEnabled = false, queue = restored, currentIndex = restoredIdx) }
+                return
+            }
+        }
+        mc?.shuffleModeEnabled = next
         _ui.update { it.copy(shuffleEnabled = next) }
     }
 

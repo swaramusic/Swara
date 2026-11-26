@@ -99,6 +99,7 @@ internal fun TrackRow(
     isDownloaded: Boolean,
     isDownloading: Boolean,
     primaryColor: Color,
+    isCurrent: Boolean = false,
     onClick: () -> Unit,
     onToggleLike: () -> Unit,
     onAddToQueue: () -> Unit,
@@ -110,6 +111,7 @@ internal fun TrackRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .background(if (isCurrent) Color.White.copy(alpha = 0.08f) else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -122,7 +124,19 @@ internal fun TrackRow(
             modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)).background(CardDark)
         )
         Column(modifier = Modifier.weight(1f)) {
-            Text(track.title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (isCurrent) {
+                    Icon(Icons.Default.GraphicEq, contentDescription = "Sedang diputar", tint = TextInk, modifier = Modifier.size(16.dp))
+                }
+                Text(
+                    track.title,
+                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    color = TextInk,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (isDownloaded) {
                     Icon(Icons.Default.DownloadDone, contentDescription = "Offline", tint = TextInk.copy(alpha = 0.7f), modifier = Modifier.size(13.dp))
