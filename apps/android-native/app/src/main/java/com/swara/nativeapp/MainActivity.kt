@@ -68,7 +68,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -604,7 +603,7 @@ fun SwaraNativeApp(
     val onSaveToPlaylistCb: (Track) -> Unit = remember { { playlistPickerTrack = it } }
     val onOpenArtistCb: (String) -> Unit = remember(vm) { { vm.openArtist(it) } }
 
-    var isBarCollapsed by remember { mutableStateOf(false) }
+    // shortcut: navbar always visible; collapse-on-scroll removed (triggered on all tabs)
     val appCtx = androidx.compose.ui.platform.LocalContext.current
     var availableUpdate by remember { mutableStateOf<Triple<String, String, String>?>(null) }
     var showUpdateNotesDialog by remember { mutableStateOf(false) }
@@ -643,25 +642,7 @@ fun SwaraNativeApp(
         }
         if (found != null) availableUpdate = found
     }
-    val barScrollConn = remember {
-        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
-            private var dyAcc = 0f
-            override fun onPreScroll(
-                available: androidx.compose.ui.geometry.Offset,
-                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
-            ): androidx.compose.ui.geometry.Offset {
-                dyAcc = (dyAcc + available.y).coerceIn(-60f, 60f)
-                if (dyAcc < -32f && !isBarCollapsed) {
-                    isBarCollapsed = true
-                    dyAcc = 0f
-                } else if (dyAcc > 28f && isBarCollapsed) {
-                    isBarCollapsed = false
-                    dyAcc = 0f
-                }
-                return androidx.compose.ui.geometry.Offset.Zero
-            }
-        }
-    }
+    
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -681,7 +662,6 @@ fun SwaraNativeApp(
                         )
                     )
                 )
-                .nestedScroll(barScrollConn)
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -1057,201 +1037,116 @@ fun SwaraNativeApp(
                         }
                     }
 
-                    AnimatedContent(
-                        targetState = isBarCollapsed,
-                        transitionSpec = {
-                            (fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
-                                slideInVertically(spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)) { it / 4 }) togetherWith
-                                (fadeOut(tween(140)) + slideOutVertically(tween(140)) { it / 4 })
-                        },
-                        label = "bottomBarMorph"
-                    ) { collapsed ->
-                        if (collapsed) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Surface(
-                                    color = liquidGlassBg,
-                                    shape = CircleShape,
-                                    border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
-                                    modifier = Modifier.size(54.dp).clip(CircleShape).clickable { isBarCollapsed = false }
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(activeIcon, contentDescription = "Expand Nav", tint = TextInk, modifier = Modifier.size(24.dp))
-                                    }
-                                }
-                                val curTrack = state.currentTrack
-                                if (curTrack != null) {
-                                    Surface(
-                                        color = liquidGlassBg,
-                                        shape = RoundedCornerShape(30.dp),
-                                        border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
-                                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(30.dp)).clickable { showFullscreen = true }
+                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            AsyncImage(
-                                                model = curTrack.artworkUrl,
-                                                contentDescription = curTrack.title,
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.size(38.dp).clip(RoundedCornerShape(10.dp))
-                                            )
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(curTrack.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextInk, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                Text(curTrack.artist, fontSize = 11.sp, color = TextInk.copy(alpha = 0.68f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            }
+                                        val curTrack = state.currentTrack
+                                        if (curTrack != null) {
                                             Surface(
-                                                color = TextInk,
-                                                shape = CircleShape,
-                                                modifier = Modifier.size(36.dp).clip(CircleShape).clickable { vm.togglePlayPause() }
+                                                color = liquidGlassBg,
+                                                shape = RoundedCornerShape(30.dp),
+                                                border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
+                                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp)).clickable { showFullscreen = true }
                                             ) {
-                                                Box(contentAlignment = Alignment.Center) {
-                                                    Icon(
-                                                        if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                                        contentDescription = "Play/Pause",
-                                                        tint = BgDark,
-                                                        modifier = Modifier.size(20.dp)
-                                                    )
+                                                Column {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                    ) {
+                                                        AsyncImage(
+                                                            model = curTrack.artworkUrl,
+                                                            contentDescription = curTrack.title,
+                                                            contentScale = ContentScale.Crop,
+                                                            modifier = Modifier.size(38.dp).clip(RoundedCornerShape(10.dp))
+                                                        )
+                                                        Column(modifier = Modifier.weight(1f)) {
+                                                            Text(curTrack.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextInk, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                            Text(curTrack.artist, fontSize = 11.sp, color = TextInk.copy(alpha = 0.68f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                        }
+                                                        IconButton(onClick = { vm.toggleLike(curTrack) }, modifier = Modifier.size(34.dp)) {
+                                                            Icon(
+                                                                if (curTrack.id in likedIds) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                                                contentDescription = "Like",
+                                                                tint = if (curTrack.id in likedIds) primaryColor else TextInk,
+                                                                modifier = Modifier.size(19.dp)
+                                                            )
+                                                        }
+                                                        Surface(
+                                                            color = TextInk,
+                                                            shape = CircleShape,
+                                                            modifier = Modifier.size(36.dp).clip(CircleShape).clickable { vm.togglePlayPause() }
+                                                        ) {
+                                                            Box(contentAlignment = Alignment.Center) {
+                                                                Icon(
+                                                                    if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                                                    contentDescription = "Play/Pause",
+                                                                    tint = BgDark,
+                                                                    modifier = Modifier.size(20.dp)
+                                                                )
+                                                            }
+                                                        }
+                                                        IconButton(onClick = { vm.playNext() }, modifier = Modifier.size(34.dp)) {
+                                                            Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = TextInk, modifier = Modifier.size(20.dp))
+                                                        }
+                                                    }
+                                                    MiniPlayerProgress(progressFlow = vm.progress, primaryColor = primaryColor, collapseFraction = 0f)
                                                 }
                                             }
                                         }
-                                    }
-                                } else {
-                                    Surface(
-                                        color = liquidGlassBg,
-                                        shape = RoundedCornerShape(30.dp),
-                                        border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
-                                        modifier = Modifier.weight(1f).height(54.dp).clip(RoundedCornerShape(30.dp)).clickable { isBarCollapsed = false }
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        Surface(
+                                            color = liquidGlassBg,
+                                            shape = RoundedCornerShape(32.dp),
+                                            border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
+                                            modifier = Modifier.fillMaxWidth().height(64.dp)
                                         ) {
-                                            Text(navTabLabel(activeTab), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextInk)
-                                            Icon(Icons.Default.ExpandLess, contentDescription = "Expand", tint = TextInk.copy(alpha = 0.7f))
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                val curTrack = state.currentTrack
-                                if (curTrack != null) {
-                                    Surface(
-                                        color = liquidGlassBg,
-                                        shape = RoundedCornerShape(30.dp),
-                                        border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
-                                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp)).clickable { showFullscreen = true }
-                                    ) {
-                                        Column {
                                             Row(
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                modifier = Modifier.fillMaxSize().padding(vertical = 2.dp, horizontal = 6.dp),
+                                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                AsyncImage(
-                                                    model = curTrack.artworkUrl,
-                                                    contentDescription = curTrack.title,
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier.size(38.dp).clip(RoundedCornerShape(10.dp))
-                                                )
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(curTrack.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextInk, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                    Text(curTrack.artist, fontSize = 11.sp, color = TextInk.copy(alpha = 0.68f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                }
-                                                IconButton(onClick = { vm.toggleLike(curTrack) }, modifier = Modifier.size(34.dp)) {
-                                                    Icon(
-                                                        if (curTrack.id in likedIds) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                                        contentDescription = "Like",
-                                                        tint = if (curTrack.id in likedIds) primaryColor else TextInk,
-                                                        modifier = Modifier.size(19.dp)
+                                                NavTab.values().forEach { tab ->
+                                                    val selected = activeTab == tab
+                                                    val iconScale by animateFloatAsState(
+                                                        targetValue = if (selected) 1.12f else 1.0f,
+                                                        animationSpec = spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMedium),
+                                                        label = "navScale"
                                                     )
-                                                }
-                                                Surface(
-                                                    color = TextInk,
-                                                    shape = CircleShape,
-                                                    modifier = Modifier.size(36.dp).clip(CircleShape).clickable { vm.togglePlayPause() }
-                                                ) {
-                                                    Box(contentAlignment = Alignment.Center) {
-                                                        Icon(
-                                                            if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                                            contentDescription = "Play/Pause",
-                                                            tint = BgDark,
-                                                            modifier = Modifier.size(20.dp)
-                                                        )
+                                                    val icon = when (tab) {
+                                                        NavTab.HOME -> Icons.Default.Home
+                                                        NavTab.EXPLORE -> Icons.Default.Explore
+                                                        NavTab.LIBRARY -> Icons.Default.LibraryMusic
+                                                        NavTab.STATS -> Icons.Default.BarChart
+                                                        NavTab.SETTINGS -> Icons.Default.Settings
+                                                    }
+                                                    Box(
+                                                        modifier = Modifier.weight(1f),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Column(
+                                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                                            modifier = Modifier
+                                                                .clip(RoundedCornerShape(18.dp))
+                                                                .background(if (selected) TextInk.copy(alpha = 0.14f) else Color.Transparent)
+                                                                .clickable { activeTab = tab }
+                                                                .padding(horizontal = 12.dp, vertical = 5.dp)
+                                                        ) {
+                                                            Icon(icon, contentDescription = navTabLabel(tab), tint = if (selected) TextInk else TextInk.copy(alpha = 0.62f), modifier = Modifier.size(20.dp).scale(iconScale))
+                                                            Text(
+                                                                navTabLabel(tab),
+                                                                fontSize = 10.sp,
+                                                                lineHeight = 12.sp,
+                                                                maxLines = 1,
+                                                                softWrap = false,
+                                                                color = if (selected) TextInk else TextInk.copy(alpha = 0.62f)
+                                                            )
+                                                        }
                                                     }
                                                 }
-                                                IconButton(onClick = { vm.playNext() }, modifier = Modifier.size(34.dp)) {
-                                                    Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = TextInk, modifier = Modifier.size(20.dp))
-                                                }
-                                            }
-                                            MiniPlayerProgress(progressFlow = vm.progress, primaryColor = primaryColor, collapseFraction = 0f)
-                                        }
-                                    }
-                                }
-                                Surface(
-                                    color = liquidGlassBg,
-                                    shape = RoundedCornerShape(32.dp),
-                                    border = androidx.compose.foundation.BorderStroke(1.2.dp, liquidGlassBorder),
-                                    modifier = Modifier.fillMaxWidth().height(64.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxSize().padding(vertical = 2.dp, horizontal = 6.dp),
-                                        horizontalArrangement = Arrangement.SpaceEvenly,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        NavTab.values().forEach { tab ->
-                                            val selected = activeTab == tab
-                                            val iconScale by animateFloatAsState(
-                                                targetValue = if (selected) 1.12f else 1.0f,
-                                                animationSpec = spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMedium),
-                                                label = "navScale"
-                                            )
-                                            val icon = when (tab) {
-                                                NavTab.HOME -> Icons.Default.Home
-                                                NavTab.EXPLORE -> Icons.Default.Explore
-                                                NavTab.LIBRARY -> Icons.Default.LibraryMusic
-                                                NavTab.STATS -> Icons.Default.BarChart
-                                                NavTab.SETTINGS -> Icons.Default.Settings
-                                            }
-                                            Box(
-                                                modifier = Modifier.weight(1f),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Column(
-                                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(18.dp))
-                                                        .background(if (selected) TextInk.copy(alpha = 0.14f) else Color.Transparent)
-                                                        .clickable { activeTab = tab; isBarCollapsed = false }
-                                                        .padding(horizontal = 12.dp, vertical = 5.dp)
-                                                ) {
-                                                    Icon(icon, contentDescription = navTabLabel(tab), tint = if (selected) TextInk else TextInk.copy(alpha = 0.62f), modifier = Modifier.size(20.dp).scale(iconScale))
-                                                    Text(
-                                                        navTabLabel(tab),
-                                                        fontSize = 10.sp,
-                                                        lineHeight = 12.sp,
-                                                        maxLines = 1,
-                                                        softWrap = false,
-                                                        color = if (selected) TextInk else TextInk.copy(alpha = 0.62f)
-                                                    )
-                                                }
                                             }
                                         }
                                     }
-                                }
-                            }
-                        }
-                    }
                 }
             }
 
