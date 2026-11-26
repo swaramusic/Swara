@@ -1255,54 +1255,6 @@ fun SwaraNativeApp(
                 }
             }
 
-            AnimatedVisibility(
-                visible = showFullscreen && state.currentTrack != null,
-                enter = slideInVertically(tween(260)) { it / 3 } + fadeIn(tween(220)),
-                exit = slideOutVertically(tween(220)) { it / 3 } + fadeOut(tween(180))
-            ) {
-                state.currentTrack?.let { cur ->
-                    val (posMs, durMs) = vm.progress.collectAsState().value
-                    FullscreenPlayerOverlay(
-                        track = cur,
-                        isPlaying = state.isPlaying,
-                        positionMs = posMs,
-                        durationMs = durMs,
-                    shuffleEnabled = state.shuffleEnabled,
-                    repeatMode = state.repeatMode,
-                    isLiked = cur.id in likedIds,
-                    isDownloaded = cur.id in downloadedIds,
-                    isDownloading = cur.id in state.downloadingIds,
-                    activeTab = playerTab,
-                    onSelectTab = { playerTab = it },
-                    lyrics = state.lyrics,
-                    isLoadingLyrics = state.isLoadingLyrics,
-                    romanizeLyrics = state.romanizeLyrics,
-                    queue = state.queue,
-                    currentIndex = state.currentIndex,
-                    sleepRemainingSec = state.sleepTimerRemainingSec,
-                    primaryColor = primaryColor,
-                    glowColor = glowColor,
-                    onClose = { showFullscreen = false },
-                    onTogglePlayPause = { vm.togglePlayPause() },
-                    onNext = { vm.playNext() },
-                    onPrev = { vm.playPrevious() },
-                    onSeek = { vm.seekTo(it) },
-                    onToggleShuffle = { vm.toggleShuffle() },
-                    onCycleRepeat = { vm.cycleRepeat() },
-                    onToggleLike = { vm.toggleLike(cur) },
-                    onDownload = { pendingDownloadTracks = listOf(cur) },
-                    onPlayQueueIndex = { idx -> vm.playFromList(state.queue, idx) },
-                    onRemoveQueueIndex = { idx -> vm.removeFromQueue(idx) },
-                    onCycleSleepTimer = { vm.cycleSleepTimer() },
-                    onOpenEq = { showEqSheet = true },
-                    onOpenMenu = { showSongMenuSheet = true },
-                    ambientMode = ambientMode,
-                    onToggleAmbient = { ambientMode = !ambientMode },
-                    onToggleRomanizeLyrics = { vm.setRomanizeLyrics(!state.romanizeLyrics) },
-                )
-                }
-            }
-
             if (showSongMenuSheet && state.currentTrack != null) {
                 val cur = state.currentTrack!!
                 val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -1748,6 +1700,54 @@ fun SwaraNativeApp(
                         onSaveToPlaylist = onSaveToPlaylistCb,
                         onRemoveTrack = { t -> vm.removeTrackFromPlaylist(fresh.id, t.id) },
                         onEditPlaylist = { newName, uri -> vm.updatePlaylist(fresh.id, newName, uri) },
+                    )
+                }
+            }
+
+            AnimatedVisibility(
+                visible = showFullscreen && state.currentTrack != null,
+                enter = slideInVertically(tween(260)) { it / 3 } + fadeIn(tween(220)),
+                exit = slideOutVertically(tween(220)) { it / 3 } + fadeOut(tween(180))
+            ) {
+                state.currentTrack?.let { cur ->
+                    val (posMs, durMs) = vm.progress.collectAsState().value
+                    FullscreenPlayerOverlay(
+                        track = cur,
+                        isPlaying = state.isPlaying,
+                        positionMs = posMs,
+                        durationMs = durMs,
+                        shuffleEnabled = state.shuffleEnabled,
+                        repeatMode = state.repeatMode,
+                        isLiked = cur.id in likedIds,
+                        isDownloaded = cur.id in downloadedIds,
+                        isDownloading = cur.id in state.downloadingIds,
+                        activeTab = playerTab,
+                        onSelectTab = { playerTab = it },
+                        lyrics = state.lyrics,
+                        isLoadingLyrics = state.isLoadingLyrics,
+                        romanizeLyrics = state.romanizeLyrics,
+                        queue = state.queue,
+                        currentIndex = state.currentIndex,
+                        sleepRemainingSec = state.sleepTimerRemainingSec,
+                        primaryColor = primaryColor,
+                        glowColor = glowColor,
+                        onClose = { showFullscreen = false },
+                        onTogglePlayPause = { vm.togglePlayPause() },
+                        onNext = { vm.playNext() },
+                        onPrev = { vm.playPrevious() },
+                        onSeek = { vm.seekTo(it) },
+                        onToggleShuffle = { vm.toggleShuffle() },
+                        onCycleRepeat = { vm.cycleRepeat() },
+                        onToggleLike = { vm.toggleLike(cur) },
+                        onDownload = { pendingDownloadTracks = listOf(cur) },
+                        onPlayQueueIndex = { idx -> vm.playFromList(state.queue, idx) },
+                        onRemoveQueueIndex = { idx -> vm.removeFromQueue(idx) },
+                        onCycleSleepTimer = { vm.cycleSleepTimer() },
+                        onOpenEq = { showEqSheet = true },
+                        onOpenMenu = { showSongMenuSheet = true },
+                        ambientMode = ambientMode,
+                        onToggleAmbient = { ambientMode = !ambientMode },
+                        onToggleRomanizeLyrics = { vm.setRomanizeLyrics(!state.romanizeLyrics) },
                     )
                 }
             }

@@ -571,7 +571,13 @@ internal fun UserPlaylistOverlay(
     val playlistActive = currentTrack != null && displayedTracks.any { it.id == currentTrack.id }
 
     Surface(color = BgDark, modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Brush.verticalGradient(listOf(primaryColor.copy(alpha = 0.22f), BgDark, BgDark)))
+                .pointerInput(Unit) { detectTapGestures { } }
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+        ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = if (currentTrack != null) 108.dp else 40.dp)
