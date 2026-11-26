@@ -385,10 +385,16 @@ internal fun SettingsScreen(
             onClick = onOpenStorage
         )
         HorizontalDivider(color = TextInk.copy(alpha = 0.08f))
+        val settingsCtx = androidx.compose.ui.platform.LocalContext.current
+        val currentVersion = remember(settingsCtx) {
+            runCatching {
+                settingsCtx.packageManager.getPackageInfo(settingsCtx.packageName, 0).versionName ?: "1.0.0"
+            }.getOrDefault("1.0.0")
+        }
         SettingsGroupHeader(
             icon = Icons.Default.Info,
             title = S.aboutTitle,
-            subtitle = S.aboutSubtitle,
+            subtitle = S.aboutSubtitle.replace("1.0.0", currentVersion),
             expanded = false,
             primaryColor = primaryColor,
             onClick = onOpenAbout

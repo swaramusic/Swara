@@ -573,6 +573,7 @@ fun SwaraNativeApp(
             playlistPickerTrack != null -> playlistPickerTrack = null
             showCreatePlaylistDialog -> showCreatePlaylistDialog = false
             showImportPlaylistDialog -> showImportPlaylistDialog = false
+            showFullscreen -> showFullscreen = false
             openedUserPlaylist != null -> openedUserPlaylist = null
             state.openedArtistName != null -> vm.closeArtist()
             state.openedPlaylistTitle != null -> vm.closeOpenedPlaylist()
@@ -580,7 +581,6 @@ fun SwaraNativeApp(
             showHistorySheet -> showHistorySheet = false
             showFriendsStats -> showFriendsStats = false
             showRecapSheet -> showRecapSheet = false
-            showFullscreen -> showFullscreen = false
             activeTab != NavTab.HOME -> activeTab = NavTab.HOME
         }
     }
