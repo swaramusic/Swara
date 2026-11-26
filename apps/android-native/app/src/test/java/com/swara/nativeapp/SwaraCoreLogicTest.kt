@@ -1,7 +1,10 @@
 package com.swara.nativeapp
 
 import com.swara.nativeapp.data.YouTubeMusicClient
+import com.swara.nativeapp.model.Track
 import com.swara.nativeapp.model.romanizeLyricLine
+import com.swara.nativeapp.ui.buildShuffledQueue
+import com.swara.nativeapp.ui.sanitizeRemoteArtworkUrl
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -48,5 +51,23 @@ class SwaraCoreLogicTest {
             "PLDD6QT7xyzfI",
             ytRegex.find("https://music.youtube.com/playlist?list=PLDD6QT7xyzfI&si=abc")?.groupValues?.get(1)
         )
+    }
+
+    @Test
+    fun buildShuffledQueue_keeps_current_track_first_and_preserves_all_items() {
+        val tracks = (1..5).map { Track("id$it", "Song $it", "Artist $it", "") }
+        val shuffled = buildShuffledQueue(tracks, 2)
+        assertEquals(5, shuffled.size)
+        assertEquals("id3", shuffled.first().id)
+        assertEquals(tracks.map { it.id }.toSet(), shuffled.map { it.id }.toSet())
+    }
+
+    @Test
+    fun sanitizeRemoteArtworkUrl_allows_only_trusted_https_hosts() {
+        val valid = "https://i.ytimg.com/vi/abc123/hqdefault.jpg"
+        assertEquals(valid, sanitizeRemoteArtworkUrl(valid))
+        assertEquals("", sanitizeRemoteArtworkUrl("http://i.ytimg.com/vi/abc123/hqdefault.jpg"))
+        assertEquals("", sanitizeRemoteArtworkUrl("https://evil.example.com/a.jpg"))
+        assertEquals("", sanitizeRemoteArtworkUrl("not a url"))
     }
 }
