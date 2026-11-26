@@ -116,6 +116,9 @@ Output APK: `apps/android-native/app/build/outputs/apk/release/app-release.apk`
 
 Contributions, bug reports, and feature suggestions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
+> **Branch workflow:** All pull requests must target the **`dev`** branch — never `main` directly.
+> `main` is updated only on official releases. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full flow.
+
 ## Website & Releases
 
 - **Website & Download:** https://swaramusic.github.io/Swara/
