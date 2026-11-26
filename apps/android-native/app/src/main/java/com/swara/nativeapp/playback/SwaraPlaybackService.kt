@@ -196,18 +196,24 @@ class SwaraPlaybackService : MediaSessionService() {
             pending8D = enabled
             val svc = activeService
             val exo = svc?.player
+            if (!enabled) {
+                runCatching { virtualizer?.enabled = false }
+                runCatching { virtualizer?.release() }
+                virtualizer = null
+                return
+            }
             if (virtualizer == null && exo != null) {
                 val sid = exo.audioSessionId
                 if (sid != C.AUDIO_SESSION_ID_UNSET && sid != 0) {
-                    svc.initEqualizer(sid)
+                    virtualizer = runCatching { Virtualizer(0, sid) }.getOrNull()
                 }
             }
             val v = virtualizer ?: return
             try {
                 if (v.strengthSupported) {
-                    v.setStrength(if (enabled) 1000 else 0)
+                    v.setStrength(1000)
                 }
-                v.enabled = enabled
+                v.enabled = true
             } catch (_: Exception) {
             }
         }
@@ -230,40 +236,53 @@ class SwaraPlaybackService : MediaSessionService() {
             pendingReverbPct = percent.coerceIn(0, 100)
             val svc = activeService
             val exo = svc?.player
+            if (pendingReverbPct <= 2) {
+                runCatching { presetReverb?.enabled = false }
+                runCatching { presetReverb?.preset = PresetReverb.PRESET_NONE }
+                runCatching { presetReverb?.release() }
+                presetReverb = null
+                runCatching { exo?.setAuxEffectInfo(AuxEffectInfo(0, 0f)) }
+                return
+            }
             if (presetReverb == null && exo != null) {
                 val sid = exo.audioSessionId
                 if (sid != C.AUDIO_SESSION_ID_UNSET && sid != 0) {
-                    svc.initEqualizer(sid)
+                    presetReverb = runCatching { PresetReverb(0, 0) }.getOrNull()
                 }
             }
             val rev = presetReverb ?: return
             try {
-                if (pendingReverbPct <= 2) {
-                    rev.enabled = false
-                    rev.preset = PresetReverb.PRESET_NONE
-                    exo?.setAuxEffectInfo(AuxEffectInfo(0, 0f))
-                } else {
-                    rev.preset = when {
-                        pendingReverbPct < 35 -> PresetReverb.PRESET_SMALLROOM
-                        pendingReverbPct < 60 -> PresetReverb.PRESET_MEDIUMROOM
-                        pendingReverbPct < 80 -> PresetReverb.PRESET_LARGEHALL
-                        else -> PresetReverb.PRESET_PLATE
-                    }
-                    rev.enabled = true
-                    exo?.setAuxEffectInfo(AuxEffectInfo(rev.id, (pendingReverbPct / 100f).coerceIn(0.15f, 1.0f)))
+                rev.preset = when {
+                    pendingReverbPct < 35 -> PresetReverb.PRESET_SMALLROOM
+                    pendingReverbPct < 60 -> PresetReverb.PRESET_MEDIUMROOM
+                    pendingReverbPct < 80 -> PresetReverb.PRESET_LARGEHALL
+                    else -> PresetReverb.PRESET_PLATE
                 }
+                rev.enabled = true
+                exo?.setAuxEffectInfo(AuxEffectInfo(rev.id, (pendingReverbPct / 100f).coerceIn(0.15f, 1.0f)))
             } catch (_: Exception) {
             }
         }
 
         fun applyEqualizerBands(bandsDb: List<Float>) {
             pendingBandsDb = bandsDb
+            val isFlat = bandsDb.all { kotlin.math.abs(it) < 0.25f }
+            if (isFlat) {
+                runCatching { equalizer?.enabled = false }
+                runCatching { equalizer?.release() }
+                equalizer = null
+                runCatching { bassBoost?.enabled = false }
+                runCatching { bassBoost?.release() }
+                bassBoost = null
+                return
+            }
             val svc = activeService
             val exo = svc?.player
             if (equalizer == null && exo != null) {
                 val sid = exo.audioSessionId
                 if (sid != C.AUDIO_SESSION_ID_UNSET && sid != 0) {
-                    svc.initEqualizer(sid)
+                    equalizer = runCatching { Equalizer(0, sid) }.getOrNull()
+                    bassBoost = runCatching { BassBoost(0, sid) }.getOrNull()
                 }
             }
             val eq = equalizer ?: return
@@ -447,13 +466,20 @@ class SwaraPlaybackService : MediaSessionService() {
             bassBoost?.release()
             presetReverb?.release()
             virtualizer?.release()
-            equalizer = Equalizer(0, sessionId).apply { enabled = true }
-            bassBoost = runCatching { BassBoost(0, sessionId) }.getOrNull()
-            presetReverb = runCatching { PresetReverb(0, 0) }.getOrNull()
-            virtualizer = runCatching { Virtualizer(0, sessionId) }.getOrNull()
-            applyEqualizerBands(pendingBandsDb)
-            applyRoomReverb(pendingReverbPct)
-            setSpatial8D(pending8D)
+            equalizer = null
+            bassBoost = null
+            presetReverb = null
+            virtualizer = null
+            // Keep pure untouched stereo AudioTrack unless an effect is actively requested
+            if (pendingBandsDb.any { kotlin.math.abs(it) >= 0.25f }) {
+                applyEqualizerBands(pendingBandsDb)
+            }
+            if (pendingReverbPct > 2) {
+                applyRoomReverb(pendingReverbPct)
+            }
+            if (pending8D) {
+                setSpatial8D(true)
+            }
         } catch (_: Exception) {
             equalizer = null
             bassBoost = null
