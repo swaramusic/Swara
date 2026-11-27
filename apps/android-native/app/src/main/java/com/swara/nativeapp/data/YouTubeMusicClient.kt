@@ -551,20 +551,46 @@ class YouTubeMusicClient {
             found.filter { it.id != videoId && it.browseId.isBlank() }.distinctBy { it.id }
         }
 
+    internal fun cleanTrackTitleForLyrics(raw: String): String =
+        raw.replace(Regex("\\s*[\\[(].*?[\\])]"), "")
+            .replace(Regex("\\s*\\|.*$"), "")
+            .replace(Regex("\\s*-\\s*(?:Official|Lyric|Audio|Music|MV|Video).*$", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\s+(?:feat\\.|ft\\.)\\s+.*$", RegexOption.IGNORE_CASE), "")
+            .trim()
+
+    internal fun cleanArtistForLyrics(raw: String): String =
+        raw.replace(Regex("\\s*-\\s*Topic$", RegexOption.IGNORE_CASE), "")
+            .split(",", "&", "feat.", "ft.", " x ", " X ")
+            .firstOrNull()
+            ?.trim()
+            .orEmpty()
+
     suspend fun fetchLyrics(title: String, artist: String, durationSec: Int = 0): LyricsData? =
         withContext(Dispatchers.IO) {
             try {
-                val cleanTitle = title.replace(Regex("\\s*[\\[(].*?[\\])]"), "").trim()
-                val cleanArtist = artist.split(",", "&", "feat.", "ft.").firstOrNull()?.trim().orEmpty()
+                val cleanTitle = cleanTrackTitleForLyrics(title)
+                val cleanArtist = cleanArtistForLyrics(artist)
+                if (cleanTitle.isBlank()) return@withContext null
+
                 val encodedTrack = java.net.URLEncoder.encode(cleanTitle, "UTF-8")
                 val encodedArtist = java.net.URLEncoder.encode(cleanArtist, "UTF-8")
                 val durParam = if (durationSec > 0) "&duration=$durationSec" else ""
                 val getUrl = "https://lrclib.net/api/get?track_name=$encodedTrack&artist_name=$encodedArtist$durParam"
 
-                val obj = getJsonObject(getUrl) ?: run {
-                    val q = java.net.URLEncoder.encode("$cleanTitle $cleanArtist".trim(), "UTF-8")
-                    val arr = getJsonArray("https://lrclib.net/api/search?q=$q")
-                    arr?.optJSONObject(0)
+                val directObj = getJsonObject(getUrl)?.takeIf { cand ->
+                    val candDur = cand.optDouble("duration", 0.0)
+                    durationSec <= 0 || candDur <= 0.0 || kotlin.math.abs(candDur - durationSec) <= 25.0
+                }
+
+                val obj = directObj ?: run {
+                    val searchUrl = if (cleanArtist.isNotBlank()) {
+                        "https://lrclib.net/api/search?track_name=$encodedTrack&artist_name=$encodedArtist"
+                    } else {
+                        "https://lrclib.net/api/search?q=$encodedTrack"
+                    }
+                    val arr = getJsonArray(searchUrl)
+                        ?: getJsonArray("https://lrclib.net/api/search?q=${java.net.URLEncoder.encode("$cleanTitle $cleanArtist".trim(), "UTF-8")}")
+                    pickBestLyricsCandidate(arr, cleanTitle, cleanArtist, durationSec)
                 } ?: return@withContext null
 
                 val synced = obj.optString("syncedLyrics")
@@ -583,6 +609,55 @@ class YouTubeMusicClient {
                 null
             }
         }
+
+    private fun pickBestLyricsCandidate(
+        arr: JSONArray?,
+        cleanTitle: String,
+        cleanArtist: String,
+        durationSec: Int,
+    ): JSONObject? {
+        if (arr == null || arr.length() == 0) return null
+        var bestObj: JSONObject? = null
+        var bestScore = Int.MIN_VALUE
+        for (i in 0 until arr.length()) {
+            val cand = arr.optJSONObject(i) ?: continue
+            val hasLyrics = cand.optString("syncedLyrics").isNotBlank() || cand.optString("plainLyrics").isNotBlank()
+            if (!hasLyrics) continue
+
+            val cTitle = cand.optString("trackName").trim()
+            val cArtist = cand.optString("artistName").trim()
+            val cDur = cand.optDouble("duration", 0.0)
+
+            // Reject tracks whose duration is way off (> 45s difference) when duration is known
+            if (durationSec > 0 && cDur > 0.0 && kotlin.math.abs(cDur - durationSec) > 45.0) continue
+
+            var score = 0
+            if (cTitle.equals(cleanTitle, ignoreCase = true)) score += 50
+            else if (cTitle.contains(cleanTitle, ignoreCase = true) || cleanTitle.contains(cTitle, ignoreCase = true)) score += 25
+
+            if (cleanArtist.isNotBlank()) {
+                if (cArtist.equals(cleanArtist, ignoreCase = true)) score += 50
+                else if (cArtist.contains(cleanArtist, ignoreCase = true) || cleanArtist.contains(cArtist, ignoreCase = true)) score += 30
+                else score -= 40 // Wrong artist penalty
+            }
+
+            if (durationSec > 0 && cDur > 0.0) {
+                val diff = kotlin.math.abs(cDur - durationSec)
+                score += when {
+                    diff <= 5.0 -> 30
+                    diff <= 15.0 -> 15
+                    else -> -10
+                }
+            }
+            if (cand.optString("syncedLyrics").isNotBlank()) score += 10
+
+            if (score > bestScore) {
+                bestScore = score
+                bestObj = cand
+            }
+        }
+        return if (bestScore >= 20) bestObj else null
+    }
 
     private fun getJsonObject(url: String): JSONObject? {
         val req = Request.Builder().url(url).header("User-Agent", "SwaraNative/1.0").build()

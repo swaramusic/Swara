@@ -606,42 +606,15 @@ fun SwaraNativeApp(
 
     var isBarCollapsed by remember { mutableStateOf(false) }
     val appCtx = androidx.compose.ui.platform.LocalContext.current
-    var availableUpdate by remember { mutableStateOf<Triple<String, String, String>?>(null) }
+    var availableUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
     var showUpdateNotesDialog by remember { mutableStateOf(false) }
+    var updateDownloadProgress by remember { mutableStateOf<Int?>(null) }
+    var updateDownloadError by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         val ver = runCatching {
             appCtx.packageManager.getPackageInfo(appCtx.packageName, 0).versionName ?: "1.0.0"
         }.getOrDefault("1.0.0")
-        val found = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching {
-                val client = okhttp3.OkHttpClient()
-                val req = okhttp3.Request.Builder()
-                    .url("https://api.github.com/repos/swaramusic/Swara/releases/latest")
-                    .header("Accept", "application/vnd.github+json")
-                    .build()
-                client.newCall(req).execute().use { r ->
-                    if (!r.isSuccessful) null
-                    else {
-                        val json = org.json.JSONObject(r.body?.string().orEmpty())
-                        val tag = json.optString("tag_name").removePrefix("v").trim()
-                        val html = json.optString("html_url").ifBlank { "https://github.com/swaramusic/Swara/releases" }
-                        val body = json.optString("body").trim()
-                        val isNewer = tag.split(".").map { it.toIntOrNull() ?: 0 }
-                            .let { t ->
-                                val c = ver.split(".").map { it.toIntOrNull() ?: 0 }
-                                val maxLen = maxOf(t.size, c.size)
-                                (0 until maxLen).firstNotNullOfOrNull { i ->
-                                    val tv = t.getOrElse(i) { 0 }
-                                    val cv = c.getOrElse(i) { 0 }
-                                    if (tv != cv) tv > cv else null
-                                } ?: false
-                            }
-                        if (tag.isNotBlank() && isNewer && html.startsWith("https://")) Triple(tag, html, body) else null
-                    }
-                }
-            }.getOrNull()
-        }
-        if (found != null) availableUpdate = found
+        availableUpdate = SwaraUpdater.checkLatestUpdate(ver)
     }
     val barScrollConn = remember {
         object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
@@ -685,7 +658,32 @@ fun SwaraNativeApp(
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                availableUpdate?.let { (newVer, dlUrl, releaseNotes) ->
+                val updateScope = rememberCoroutineScope()
+                availableUpdate?.let { upd ->
+                    val startInAppUpdate: () -> Unit = {
+                        if (updateDownloadProgress == null) {
+                            val apkUrl = upd.apkUrl
+                            if (apkUrl != null) {
+                                updateDownloadError = null
+                                updateDownloadProgress = 0
+                                updateScope.launch {
+                                    val res = SwaraUpdater.downloadAndInstallApk(appCtx, apkUrl, upd.version) { pct ->
+                                        updateDownloadProgress = pct
+                                    }
+                                    updateDownloadProgress = null
+                                    res.onSuccess { launched ->
+                                        if (!launched) {
+                                            updateDownloadError = "Izinkan 'Install unknown apps' untuk Swara, lalu ketuk Update lagi."
+                                        }
+                                    }.onFailure { err ->
+                                        updateDownloadError = err.message ?: "Gagal mengunduh APK"
+                                    }
+                                }
+                            } else {
+                                runCatching { appCtx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(upd.htmlUrl))) }
+                            }
+                        }
+                    }
                     Surface(
                         color = primaryColor.copy(alpha = 0.22f),
                         shape = RoundedCornerShape(14.dp),
@@ -696,57 +694,110 @@ fun SwaraNativeApp(
                             .clip(RoundedCornerShape(14.dp))
                             .clickable { showUpdateNotesDialog = true }
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Default.Update, contentDescription = null, tint = TextInk, modifier = Modifier.size(18.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Update v$newVer tersedia", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextInk)
-                                Text("Ketuk untuk lihat catatan rilis", fontSize = 10.sp, color = TextInk.copy(alpha = 0.7f))
-                            }
-                            Surface(
-                                color = primaryColor,
-                                shape = RoundedCornerShape(50),
-                                modifier = Modifier.clip(RoundedCornerShape(50)).clickable { showUpdateNotesDialog = true }
+                        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text("Update", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+                                Icon(Icons.Default.Update, contentDescription = null, tint = TextInk, modifier = Modifier.size(18.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Update v${upd.version} tersedia", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextInk)
+                                    val subText = updateDownloadProgress?.let { "Mengunduh pembaruan... $it%" }
+                                        ?: updateDownloadError
+                                        ?: "Ketuk untuk lihat catatan rilis"
+                                    Text(subText, fontSize = 10.sp, color = TextInk.copy(alpha = 0.72f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                Surface(
+                                    color = primaryColor,
+                                    shape = RoundedCornerShape(50),
+                                    modifier = Modifier.clip(RoundedCornerShape(50)).clickable { startInAppUpdate() }
+                                ) {
+                                    Text(
+                                        if (updateDownloadProgress != null) "${updateDownloadProgress}%" else "Update",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+                                if (updateDownloadProgress == null) {
+                                    IconButton(onClick = { availableUpdate = null }, modifier = Modifier.size(24.dp)) {
+                                        Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = TextInk, modifier = Modifier.size(15.dp))
+                                    }
+                                }
                             }
-                            IconButton(onClick = { availableUpdate = null }, modifier = Modifier.size(24.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = TextInk, modifier = Modifier.size(15.dp))
+                            updateDownloadProgress?.let { pct ->
+                                Spacer(Modifier.height(6.dp))
+                                LinearProgressIndicator(
+                                    progress = { (pct / 100f).coerceIn(0f, 1f) },
+                                    modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(50)),
+                                    color = primaryColor,
+                                    trackColor = TextInk.copy(alpha = 0.16f),
+                                )
                             }
                         }
                     }
                     if (showUpdateNotesDialog) {
                         AlertDialog(
-                            onDismissRequest = { showUpdateNotesDialog = false },
+                            onDismissRequest = { if (updateDownloadProgress == null) showUpdateNotesDialog = false },
                             containerColor = CardDark,
                             titleContentColor = TextInk,
                             textContentColor = TextInk,
-                            title = { Text("Update v$newVer", fontWeight = FontWeight.Bold) },
+                            title = { Text("Update v${upd.version}", fontWeight = FontWeight.Bold) },
                             text = {
                                 Column(
                                     modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     Text(
-                                        releaseNotes.ifBlank { "Perbaikan bug dan peningkatan performa." },
+                                        upd.releaseNotes,
                                         fontSize = 13.sp,
-                                        lineHeight = 19.sp,
-                                        color = TextInk.copy(alpha = 0.85f)
+                                        lineHeight = 20.sp,
+                                        color = TextInk.copy(alpha = 0.88f)
                                     )
+                                    updateDownloadProgress?.let { pct ->
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text("Mengunduh APK... $pct%", fontSize = 12.sp, color = TextInk.copy(alpha = 0.7f))
+                                            LinearProgressIndicator(
+                                                progress = { (pct / 100f).coerceIn(0f, 1f) },
+                                                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)),
+                                                color = primaryColor,
+                                                trackColor = TextInk.copy(alpha = 0.16f),
+                                            )
+                                        }
+                                    }
+                                    updateDownloadError?.let { err ->
+                                        Text(err, fontSize = 12.sp, color = Color(0xFFFF8A80))
+                                    }
                                 }
                             },
                             confirmButton = {
-                                TextButton(onClick = {
-                                    showUpdateNotesDialog = false
-                                    runCatching { appCtx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(dlUrl))) }
-                                }) { Text("Download Update", color = TextInk, fontWeight = FontWeight.Bold) }
+                                TextButton(
+                                    enabled = updateDownloadProgress == null,
+                                    onClick = { startInAppUpdate() }
+                                ) {
+                                    Text(
+                                        if (updateDownloadProgress != null) "Mengunduh..." else "Update Sekarang",
+                                        color = TextInk,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             },
                             dismissButton = {
-                                TextButton(onClick = { showUpdateNotesDialog = false }) {
-                                    Text("Nanti", color = TextInk.copy(alpha = 0.7f))
+                                Row {
+                                    if (updateDownloadError != null) {
+                                        TextButton(onClick = {
+                                            showUpdateNotesDialog = false
+                                            runCatching { appCtx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(upd.htmlUrl))) }
+                                        }) {
+                                            Text("Buka GitHub", color = TextInk.copy(alpha = 0.7f))
+                                        }
+                                    }
+                                    if (updateDownloadProgress == null) {
+                                        TextButton(onClick = { showUpdateNotesDialog = false }) {
+                                            Text("Nanti", color = TextInk.copy(alpha = 0.7f))
+                                        }
+                                    }
                                 }
                             }
                         )
@@ -1778,7 +1829,7 @@ fun SwaraNativeApp(
                                         .padding(14.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Default.QueueMusic, contentDescription = null, tint = TextInk)
+                                    Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = TextInk)
                                     Spacer(Modifier.width(10.dp))
                                     Text(pl.name, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                                     Text("${pl.tracks.size} lagu", fontSize = 12.sp, color = TextInk.copy(alpha = 0.6f))
