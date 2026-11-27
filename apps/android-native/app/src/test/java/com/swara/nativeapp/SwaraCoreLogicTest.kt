@@ -3,6 +3,7 @@ package com.swara.nativeapp
 import com.swara.nativeapp.data.YouTubeMusicClient
 import com.swara.nativeapp.model.Track
 import com.swara.nativeapp.model.romanizeLyricLine
+import com.swara.nativeapp.model.stringsFor
 import com.swara.nativeapp.ui.buildShuffledQueue
 import com.swara.nativeapp.ui.sanitizeRemoteArtworkUrl
 import org.junit.Assert.assertEquals
@@ -26,11 +27,12 @@ class SwaraCoreLogicTest {
     @Test
     fun parseLrc_sorts_and_parses_timestamps() {
         val client = YouTubeMusicClient()
-        val lrc = """
+        val lrc =
+            """
             [00:12.50] Second line
             [00:05.10] First line
             [01:02.000] Third line
-        """.trimIndent()
+            """.trimIndent()
         val lines = client.parseLrc(lrc)
         assertEquals(3, lines.size)
         assertEquals(5100L, lines[0].startMs)
@@ -45,11 +47,15 @@ class SwaraCoreLogicTest {
         val ytRegex = Regex("[?&]list=([A-Za-z0-9_-]+)")
         assertEquals(
             "37i9dQZF1DXcBWIGoYBM5M",
-            spRegex.find("https://open.spotify.com/intl-id/playlist/37i9dQZF1DXcBWIGoYBM5M?si=123")?.groupValues?.get(1),
+            spRegex.find(
+                "https://open.spotify.com/intl-id/playlist/37i9dQZF1DXcBWIGoYBM5M?si=123"
+            )?.groupValues?.get(1)
         )
         assertEquals(
             "PLDD6QT7xyzfI",
-            ytRegex.find("https://music.youtube.com/playlist?list=PLDD6QT7xyzfI&si=abc")?.groupValues?.get(1),
+            ytRegex.find(
+                "https://music.youtube.com/playlist?list=PLDD6QT7xyzfI&si=abc"
+            )?.groupValues?.get(1)
         )
     }
 
@@ -89,12 +95,13 @@ class SwaraCoreLogicTest {
 
     @Test
     fun sanitizeRemoteArtworkUrl_allows_all_trusted_hosts() {
-        val trustedUrls = listOf(
-            "https://i.ytimg.com/vi/abc/hq.jpg",
-            "https://lh3.googleusercontent.com/abc",
-            "https://yt3.googleusercontent.com/abc",
-            "https://music.youtube.com/thumbnail/abc",
-        )
+        val trustedUrls =
+            listOf(
+                "https://i.ytimg.com/vi/abc/hq.jpg",
+                "https://lh3.googleusercontent.com/abc",
+                "https://yt3.googleusercontent.com/abc",
+                "https://music.youtube.com/thumbnail/abc"
+            )
         for (url in trustedUrls) {
             assertEquals("Expected $url to pass", url, sanitizeRemoteArtworkUrl(url))
         }
@@ -110,7 +117,52 @@ class SwaraCoreLogicTest {
         // Direct playlist without intl
         assertEquals(
             "ABC123",
-            spRegex.find("https://open.spotify.com/playlist/ABC123")?.groupValues?.get(1),
+            spRegex.find("https://open.spotify.com/playlist/ABC123")?.groupValues?.get(1)
         )
+    }
+
+    @Test
+    fun parseLrc_skips_metadata_empty_lines_and_handles_variable_fractions() {
+        val client = YouTubeMusicClient()
+        val lrc =
+            """
+            [ar:Test Artist]
+            [ti:Test Song]
+            [00:01] No fraction
+            [00:02.5] One digit
+            [00:03.05] Two digits
+            [00:04.123] Three digits
+            [00:05.00]   
+            plain text without timestamp
+            """.trimIndent()
+        val lines = client.parseLrc(lrc)
+        assertEquals(4, lines.size)
+        assertEquals(1000L, lines[0].startMs)
+        assertEquals("No fraction", lines[0].text)
+        assertEquals(2500L, lines[1].startMs)
+        assertEquals(3050L, lines[2].startMs)
+        assertEquals(4123L, lines[3].startMs)
+    }
+
+    @Test
+    fun romanize_katakana_and_mixed_text_works() {
+        val kata = romanizeLyricLine("さくら")
+        assertNotNull(kata)
+        assertEquals("sakura", kata)
+
+        val mixed = romanizeLyricLine("Hello さくら")
+        assertNotNull(mixed)
+        assertTrue(mixed!!.contains("Hello"))
+        assertTrue(mixed.contains("sakura"))
+    }
+
+    @Test
+    fun stringsFor_returns_valid_localization_and_falls_back_gracefully() {
+        val idStrings = stringsFor("id")
+        val enStrings = stringsFor("en")
+        val fallback = stringsFor("xx_invalid")
+        assertTrue(idStrings.home.isNotBlank())
+        assertTrue(enStrings.home.isNotBlank())
+        assertTrue(fallback.home.isNotBlank())
     }
 }
