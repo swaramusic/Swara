@@ -32,11 +32,12 @@ android {
     buildTypes {
         release {
             val ksPath = System.getenv("SWARA_KEYSTORE_PATH")
-            signingConfig = if (!ksPath.isNullOrBlank() && file(ksPath).exists()) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            signingConfig =
+                if (!ksPath.isNullOrBlank() && file(ksPath).exists()) {
+                    signingConfigs.getByName("release")
+                } else {
+                    signingConfigs.getByName("debug")
+                }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
