@@ -1,4 +1,4 @@
-﻿package com.swara.nativeapp
+package com.swara.nativeapp
 
 import android.Manifest
 import android.content.Intent
@@ -87,7 +87,7 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.swara.nativeapp.model.*
 import com.swara.nativeapp.playback.SwaraPlaybackService
-import com.swara.nativeapp.ui.SwaraViewModel
+import com.swara.nativeapp.ui.*
 import java.util.Calendar
 import kotlin.math.sin
 
@@ -1255,8 +1255,9 @@ fun SwaraNativeApp(
                 }
             }
 
-            if (showSongMenuSheet && state.currentTrack != null) {
-                val cur = state.currentTrack!!
+            val menuTrack = state.currentTrack
+            if (showSongMenuSheet && menuTrack != null) {
+                val cur = menuTrack
                 val ctx = androidx.compose.ui.platform.LocalContext.current
                 ModalBottomSheet(
                     onDismissRequest = { showSongMenuSheet = false },

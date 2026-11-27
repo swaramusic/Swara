@@ -155,10 +155,21 @@ class YouTubeMusicClient {
             } else found.distinctBy { it.id }
         }
 
-    suspend fun fetchPlaylistTracks(browseId: String, hl: String = "id", gl: String = "ID"): List<Track> =
-        fetchPlaylistWithTitle(browseId, hl, gl).second
+    data class ImportedPlaylist(
+        val title: String,
+        val artworkUrl: String,
+        val tracks: List<Track>,
+    )
 
-    suspend fun fetchPlaylistWithTitle(browseId: String, hl: String = "id", gl: String = "ID"): Pair<String, List<Track>> =
+    suspend fun fetchPlaylistTracks(browseId: String, hl: String = "id", gl: String = "ID"): List<Track> =
+        fetchPlaylistWithArtwork(browseId, hl, gl).tracks
+
+    suspend fun fetchPlaylistWithTitle(browseId: String, hl: String = "id", gl: String = "ID"): Pair<String, List<Track>> {
+        val res = fetchPlaylistWithArtwork(browseId, hl, gl)
+        return res.title to res.tracks
+    }
+
+    suspend fun fetchPlaylistWithArtwork(browseId: String, hl: String = "id", gl: String = "ID"): ImportedPlaylist =
         withContext(Dispatchers.IO) {
             val payload = JSONObject().apply {
                 put("browseId", browseId)
@@ -166,11 +177,13 @@ class YouTubeMusicClient {
             }
             val root = postJson("$API/browse?prettyPrint=false", payload)
             val title = extractPlaylistTitle(root) ?: "Playlist YouTube"
+            val headerArtwork = extractPlaylistArtwork(root)
             val found = mutableListOf<Track>()
 
             val playlistShelf = findPlaylistShelf(root)
             if (playlistShelf != null) {
-                collectTracksRecursive(playlistShelf.optJSONArray("contents"), found, limit = Int.MAX_VALUE)
+                val initialArray = playlistShelf.optJSONArray("contents")
+                collectTracksRecursive(initialArray, found, limit = Int.MAX_VALUE)
                 val seenTokens = mutableSetOf<String>()
                 var token = extractContinuationToken(playlistShelf)
                 while (!token.isNullOrBlank() && seenTokens.add(token)) {
@@ -186,11 +199,48 @@ class YouTubeMusicClient {
                     token = extractContinuationToken(contItems) ?: extractContinuationToken(contRoot)
                 }
             } else {
-                collectTracksRecursive(root, found, limit = Int.MAX_VALUE)
+                // Only scan the primary browse results tab, never unrelated sidebars/recommendations
+                val primaryTab = root.optJSONObject("contents")
+                    ?.optJSONObject("singleColumnBrowseResultsRenderer")
+                    ?.optJSONArray("tabs")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("tabRenderer")
+                    ?.optJSONObject("content")
+                if (primaryTab != null) {
+                    collectTracksRecursive(primaryTab, found, limit = Int.MAX_VALUE)
+                }
             }
 
-            title to found.filter { it.browseId.isBlank() }.distinctBy { it.id }
+            val finalTracks = found.filter { it.browseId.isBlank() }.distinctBy { it.id }
+            val artwork = headerArtwork.ifBlank { finalTracks.firstOrNull()?.artworkUrl.orEmpty() }
+            ImportedPlaylist(title, artwork, finalTracks)
         }
+
+    private fun extractPlaylistArtwork(root: JSONObject): String {
+        val header = root.optJSONObject("header")
+        val candidates = listOfNotNull(
+            header?.optJSONObject("musicResponsiveHeaderRenderer")?.optJSONObject("thumbnail"),
+            header?.optJSONObject("musicDetailHeaderRenderer")?.optJSONObject("thumbnail"),
+            header?.optJSONObject("musicEditablePlaylistDetailHeaderRenderer")
+                ?.optJSONObject("header")?.optJSONObject("musicResponsiveHeaderRenderer")?.optJSONObject("thumbnail"),
+            header?.optJSONObject("musicEditablePlaylistDetailHeaderRenderer")
+                ?.optJSONObject("header")?.optJSONObject("musicDetailHeaderRenderer")?.optJSONObject("thumbnail"),
+        )
+        for (thumb in candidates) {
+            val arr = thumb.optJSONObject("musicThumbnailRenderer")
+                ?.optJSONObject("thumbnail")
+                ?.optJSONArray("thumbnails")
+                ?: thumb.optJSONArray("thumbnails")
+            val url = arr?.optJSONObject(arr.length() - 1)?.optString("url")?.trim()
+            if (!url.isNullOrBlank()) return upgradeThumbnailQuality(url)
+        }
+        val mfThumbs = root.optJSONObject("microformat")
+            ?.optJSONObject("microformatDataRenderer")
+            ?.optJSONObject("thumbnail")
+            ?.optJSONArray("thumbnails")
+        val mfUrl = mfThumbs?.optJSONObject(mfThumbs.length() - 1)?.optString("url")?.trim()
+        return if (!mfUrl.isNullOrBlank()) upgradeThumbnailQuality(mfUrl) else ""
+    }
 
     private fun extractPlaylistTitle(root: JSONObject): String? {
         val header = root.optJSONObject("header")
@@ -214,6 +264,7 @@ class YouTubeMusicClient {
         when (node) {
             is JSONObject -> {
                 node.optJSONObject("musicPlaylistShelfRenderer")?.let { return it }
+                node.optJSONObject("playlistVideoListRenderer")?.let { return it }
                 val keys = node.keys()
                 while (keys.hasNext()) {
                     val found = findPlaylistShelf(node.opt(keys.next()))
@@ -272,7 +323,7 @@ class YouTubeMusicClient {
         return null
     }
 
-    suspend fun importPlaylistFromUrl(rawUrl: String, hl: String = "id", gl: String = "ID"): Result<Pair<String, List<Track>>> =
+    suspend fun importPlaylistFromUrl(rawUrl: String, hl: String = "id", gl: String = "ID"): Result<ImportedPlaylist> =
         withContext(Dispatchers.IO) {
             try {
                 val url = rawUrl.trim()
@@ -290,6 +341,8 @@ class YouTubeMusicClient {
                     }
                     val token = Regex("\"accessToken\":\"([^\"]+)\"").find(html)?.groupValues?.get(1)
                     var plTitle = "Playlist Spotify"
+                    var plArtwork = Regex("<meta\\s+property=[\"']og:image[\"']\\s+content=[\"']([^\"']+)[\"']")
+                        .find(html)?.groupValues?.get(1)?.trim().orEmpty()
                     val queries = mutableListOf<Pair<String, String>>()
 
                     if (!token.isNullOrBlank()) {
@@ -347,6 +400,14 @@ class YouTubeMusicClient {
                             val plV2 = pfJson.optJSONObject("data")?.optJSONObject("playlistV2") ?: break
                             val name = plV2.optString("name").trim()
                             if (name.isNotBlank()) plTitle = name
+                            if (plArtwork.isBlank()) {
+                                val imgSources = plV2.optJSONObject("images")
+                                    ?.optJSONArray("items")
+                                    ?.optJSONObject(0)
+                                    ?.optJSONArray("sources")
+                                val bestImg = imgSources?.optJSONObject(0)?.optString("url")?.trim()
+                                if (!bestImg.isNullOrBlank()) plArtwork = bestImg
+                            }
                             val content = plV2.optJSONObject("content") ?: break
                             totalCount = content.optInt("totalCount", 0)
                             val items = content.optJSONArray("items") ?: break
@@ -381,6 +442,12 @@ class YouTubeMusicClient {
                             ?.optJSONObject("state")?.optJSONObject("data")?.optJSONObject("entity")
                             ?: return@withContext Result.failure(Exception("Data playlist Spotify kosong"))
                         plTitle = entity.optString("name").ifBlank { entity.optString("title") }.ifBlank { "Playlist Spotify" }
+                        if (plArtwork.isBlank()) {
+                            val coverSources = entity.optJSONObject("coverArt")?.optJSONArray("sources")
+                                ?: entity.optJSONObject("visualIdentity")?.optJSONArray("image")
+                            val bestCover = coverSources?.optJSONObject(0)?.optString("url")?.trim()
+                            if (!bestCover.isNullOrBlank()) plArtwork = bestCover
+                        }
                         val trackList = entity.optJSONArray("trackList") ?: JSONArray()
                         for (i in 0 until trackList.length()) {
                             val item = trackList.optJSONObject(i) ?: continue
@@ -403,7 +470,9 @@ class YouTubeMusicClient {
                     return@withContext if (resolved.isEmpty()) {
                         Result.failure(Exception("Tidak ada lagu Spotify yang cocok ditemukan"))
                     } else {
-                        Result.success(plTitle to resolved.distinctBy { it.id })
+                        val distinct = resolved.distinctBy { it.id }
+                        val finalArt = plArtwork.ifBlank { distinct.firstOrNull()?.artworkUrl.orEmpty() }
+                        Result.success(ImportedPlaylist(plTitle, finalArt, distinct))
                     }
                 }
 
@@ -411,11 +480,11 @@ class YouTubeMusicClient {
                 if (ytMatch != null) {
                     val rawList = ytMatch.groupValues[1]
                     val browseId = if (rawList.startsWith("VL")) rawList else "VL$rawList"
-                    val (plTitle, tracks) = fetchPlaylistWithTitle(browseId, hl, gl)
-                    return@withContext if (tracks.isEmpty()) {
+                    val imported = fetchPlaylistWithArtwork(browseId, hl, gl)
+                    return@withContext if (imported.tracks.isEmpty()) {
                         Result.failure(Exception("Playlist YouTube kosong atau privat"))
                     } else {
-                        Result.success(plTitle to tracks)
+                        Result.success(imported)
                     }
                 }
 
@@ -607,10 +676,9 @@ class YouTubeMusicClient {
                                 if (url.isBlank() || !mime.startsWith("audio/")) continue
                                 candidates.add(AudioCandidate(url, mime.contains("audio/mp4"), br))
                             }
-                            val pool = candidates.filter { it.isMp4 }.ifEmpty { candidates }
                             val chosen = when (quality) {
-                                "low" -> pool.minByOrNull { it.bitrate }
-                                "medium" -> pool.minByOrNull { kotlin.math.abs(it.bitrate - 128_000) }
+                                "low" -> candidates.minByOrNull { it.bitrate }
+                                "medium" -> candidates.minByOrNull { kotlin.math.abs(it.bitrate - 128_000) }
                                 else -> candidates.maxByOrNull { it.bitrate }
                             }
                             if (chosen != null) return@withContext Result.success(chosen.url)
@@ -670,11 +738,10 @@ class YouTubeMusicClient {
                                     if (url.isBlank() || !mime.startsWith("audio/")) continue
                                     candidates.add(IosAudio(url, mime.contains("audio/mp4"), br))
                                 }
-                                val pool = candidates.filter { it.isMp4 }.ifEmpty { candidates }
                                 val chosen = when (quality) {
-                                    "low" -> pool.minByOrNull { it.bitrate }
-                                    "medium" -> pool.minByOrNull { kotlin.math.abs(it.bitrate - 128_000) }
-                                    else -> pool.maxByOrNull { it.bitrate }
+                                    "low" -> candidates.minByOrNull { it.bitrate }
+                                    "medium" -> candidates.minByOrNull { kotlin.math.abs(it.bitrate - 128_000) }
+                                    else -> candidates.maxByOrNull { it.bitrate }
                                 }
                                 if (chosen != null) return@withContext Result.success(chosen.url)
                             }
@@ -689,11 +756,10 @@ class YouTubeMusicClient {
                 val extractor = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$videoId")
                 extractor.fetchPage()
                 val audioStreams = extractor.audioStreams.filter { !it.content.isNullOrBlank() }
-                val mp4Pool = audioStreams.filter { it.format?.mimeType?.contains("mp4") == true }.ifEmpty { audioStreams }
                 val best = when (quality) {
-                    "low" -> mp4Pool.minByOrNull { it.averageBitrate }
-                    "medium" -> mp4Pool.minByOrNull { kotlin.math.abs(it.averageBitrate - 128) }
-                    else -> mp4Pool.maxByOrNull { it.averageBitrate }
+                    "low" -> audioStreams.minByOrNull { it.averageBitrate }
+                    "medium" -> audioStreams.minByOrNull { kotlin.math.abs(it.averageBitrate - 128) }
+                    else -> audioStreams.maxByOrNull { it.averageBitrate }
                 }
                 if (best != null && !best.content.isNullOrBlank()) {
                     return@withContext Result.success(best.content)
@@ -737,8 +803,10 @@ class YouTubeMusicClient {
                 val renderer = node.optJSONObject("musicResponsiveListItemRenderer")
                     ?: node.optJSONObject("musicTwoRowItemRenderer")
                     ?: node.optJSONObject("playlistPanelVideoRenderer")
+                    ?: node.optJSONObject("playlistVideoRenderer")
                 if (renderer != null) {
                     parseTrackFromRenderer(renderer)?.let { out.add(it) }
+                    return
                 }
                 val keys = node.keys()
                 while (keys.hasNext() && out.size < limit) {
@@ -783,6 +851,7 @@ class YouTubeMusicClient {
         if (videoId.isBlank() && browseId.isBlank()) return null
 
         val title = extractRunsText(r.optJSONObject("title"))
+            ?: r.optJSONObject("title")?.optString("simpleText")?.takeIf { it.isNotBlank() }
             ?: extractFlexColumnText(r, 0)
             ?: return null
 

@@ -1,4 +1,4 @@
-﻿package com.swara.nativeapp
+package com.swara.nativeapp
 
 import android.Manifest
 import android.content.Intent
@@ -289,6 +289,29 @@ internal fun HomeScreen(
             }
         }
 
+        // Show trending songs directly under "Trending Songs For You" chips when "All" is active
+        val trendingPreviewTracks = if (activeMood != "Semua") {
+            emptyList()
+        } else {
+            shelves.firstOrNull {
+                it.title.contains("Trending", ignoreCase = true) ||
+                    it.title.contains("Top", ignoreCase = true)
+            }?.tracks?.filter { it.browseId.isBlank() }?.take(10)
+                ?: shelves.flatMap { it.tracks }.filter { it.browseId.isBlank() }.distinctBy { it.id }.take(10)
+        }
+        if (trendingPreviewTracks.isNotEmpty()) {
+            item(key = "trending_preview_row") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    itemsIndexed(trendingPreviewTracks, key = { idx, t -> "tr_prev_${idx}_${t.id}" }) { idx, track ->
+                        OverlayTrackCard(track = track, onClick = { onPlay(trendingPreviewTracks, idx) })
+                    }
+                }
+            }
+        }
+
         // TODAY'S PICK - Hot For You featured card (from reference screenshot 2)
         val hotTrack = resumeTrack ?: quickGrid.firstOrNull()
         if (hotTrack != null && activeMood == "Semua") {
@@ -378,7 +401,8 @@ internal fun HomeScreen(
                     )
                 }
                 if (shelf.isList) {
-                    itemsIndexed(shelf.tracks.take(4), key = { _, t -> "${shelf.title}_${t.id}" }) { idx, track ->
+                    val listLimit = if (activeMood != "Semua") 10 else 4
+                    itemsIndexed(shelf.tracks.take(listLimit), key = { _, t -> "${shelf.title}_${t.id}" }) { idx, track ->
                         TrackRow(
                             track = track,
                             isLiked = track.id in likedIds,

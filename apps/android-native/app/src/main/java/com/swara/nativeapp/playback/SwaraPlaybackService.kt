@@ -63,7 +63,8 @@ class SwaraPlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private val yt = YouTubeMusicClient()
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val imgExecutor = Executors.newSingleThreadExecutor()
+    private val imgExecutor = Executors.newFixedThreadPool(2)
+    private val cacheExecutor = Executors.newFixedThreadPool(2)
     private val artCache = ConcurrentHashMap<String, Bitmap>()
 
     private var islandRoot: LinearLayout? = null
@@ -77,6 +78,8 @@ class SwaraPlaybackService : MediaSessionService() {
     private var remainView: TextView? = null
     private var squigglyProgressView: SquigglyIslandProgressView? = null
     private var playPauseIcon: ImageView? = null
+    private var shuffleIcon: ImageView? = null
+    private var repeatIcon: ImageView? = null
     private val waveBars = mutableListOf<View>()
     private var waveStep = 0
 
@@ -192,6 +195,7 @@ class SwaraPlaybackService : MediaSessionService() {
             activeService?.streamCache?.clear()
         }
 
+        @OptIn(UnstableApi::class)
         fun setSpatial8D(enabled: Boolean) {
             pending8D = enabled
             val svc = activeService
@@ -222,7 +226,7 @@ class SwaraPlaybackService : MediaSessionService() {
             if (videoId.isBlank() || videoId.startsWith("browse:")) return
             val svc = activeService ?: return
             if (svc.streamCache.containsKey(videoId)) return
-            svc.imgExecutor.execute {
+            svc.cacheExecutor.execute {
                 runBlocking { svc.yt.resolveAudioUrl(videoId, quality = audioQuality) }.onSuccess { url ->
                     svc.streamCache[videoId] = url
                 }
@@ -264,6 +268,7 @@ class SwaraPlaybackService : MediaSessionService() {
             }
         }
 
+        @OptIn(UnstableApi::class)
         fun applyEqualizerBands(bandsDb: List<Float>) {
             pendingBandsDb = bandsDb
             val isFlat = bandsDb.all { kotlin.math.abs(it) < 0.25f }
@@ -358,12 +363,12 @@ class SwaraPlaybackService : MediaSessionService() {
                 .getOrElse { throw IOException(it.message ?: "Audio tidak tersedia", it) }
                 .also { streamCache[videoId] = it }
             if (songCacheEnabled && !cachedFile.exists()) {
-                imgExecutor.execute {
+                cacheExecutor.execute {
                     runCatching {
                         songCacheDir.mkdirs()
                         val tmp = java.io.File(songCacheDir, "$videoId.m4a.tmp")
                         val req = okhttp3.Request.Builder().url(url).build()
-                        okhttp3.OkHttpClient().newCall(req).execute().use { res ->
+                        artHttpClient.newCall(req).execute().use { res ->
                             if (res.isSuccessful) {
                                 res.body?.byteStream()?.use { inp ->
                                     tmp.outputStream().use { out -> inp.copyTo(out) }
@@ -404,6 +409,16 @@ class SwaraPlaybackService : MediaSessionService() {
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 refreshDynamicIsland()
+                // Pre-warm artwork bitmap immediately so Dynamic Island cover renders instantly
+                mediaItem?.let { item ->
+                    val url = item.mediaMetadata.artworkUri?.toString().orEmpty()
+                        .ifBlank { if (item.mediaId.isNotBlank()) "https://i.ytimg.com/vi/${item.mediaId}/hqdefault.jpg" else "" }
+                    if (url.isNotBlank() && !artCache.containsKey(url)) {
+                        imgExecutor.execute {
+                            fetchSafeBitmap(url)?.let { artCache[url] = it }
+                        }
+                    }
+                }
                 val nextIdx = exo.currentMediaItemIndex + 1
                 if (nextIdx in 0 until exo.mediaItemCount) {
                     prefetchTrack(exo.getMediaItemAt(nextIdx).mediaId)
@@ -417,6 +432,14 @@ class SwaraPlaybackService : MediaSessionService() {
                     exo.prepare()
                     exo.play()
                 }
+            }
+
+            override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                refreshDynamicIsland()
+            }
+
+            override fun onRepeatModeChanged(repeatMode: Int) {
+                refreshDynamicIsland()
             }
         })
 
@@ -529,12 +552,19 @@ class SwaraPlaybackService : MediaSessionService() {
         }
     }
 
-    private fun drawMediaIcon(kind: String, sizePx: Int): Bitmap {
+    private fun drawMediaIcon(kind: String, sizePx: Int, tintColor: Int = Color.WHITE): Bitmap {
         val bmp = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
+            color = tintColor
             style = Paint.Style.FILL
+        }
+        val strokeP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = tintColor
+            style = Paint.Style.STROKE
+            strokeWidth = sizePx * 0.09f
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
         }
         val s = sizePx.toFloat()
         when (kind) {
@@ -573,6 +603,73 @@ class SwaraPlaybackService : MediaSessionService() {
                 }
                 c.drawPath(path, p)
             }
+            "shuffle" -> {
+                val path1 = Path().apply {
+                    moveTo(s * 0.16f, s * 0.30f)
+                    lineTo(s * 0.38f, s * 0.30f)
+                    lineTo(s * 0.64f, s * 0.70f)
+                    lineTo(s * 0.82f, s * 0.70f)
+                }
+                val path2 = Path().apply {
+                    moveTo(s * 0.16f, s * 0.70f)
+                    lineTo(s * 0.38f, s * 0.70f)
+                    lineTo(s * 0.64f, s * 0.30f)
+                    lineTo(s * 0.82f, s * 0.30f)
+                }
+                c.drawPath(path1, strokeP)
+                c.drawPath(path2, strokeP)
+                val head1 = Path().apply {
+                    moveTo(s * 0.74f, s * 0.21f)
+                    lineTo(s * 0.87f, s * 0.30f)
+                    lineTo(s * 0.74f, s * 0.39f)
+                    close()
+                }
+                val head2 = Path().apply {
+                    moveTo(s * 0.74f, s * 0.61f)
+                    lineTo(s * 0.87f, s * 0.70f)
+                    lineTo(s * 0.74f, s * 0.79f)
+                    close()
+                }
+                c.drawPath(head1, p)
+                c.drawPath(head2, p)
+            }
+            "repeat", "repeat_one" -> {
+                val topArc = Path().apply {
+                    moveTo(s * 0.22f, s * 0.45f)
+                    lineTo(s * 0.22f, s * 0.32f)
+                    lineTo(s * 0.74f, s * 0.32f)
+                }
+                val botArc = Path().apply {
+                    moveTo(s * 0.78f, s * 0.55f)
+                    lineTo(s * 0.78f, s * 0.68f)
+                    lineTo(s * 0.26f, s * 0.68f)
+                }
+                c.drawPath(topArc, strokeP)
+                c.drawPath(botArc, strokeP)
+                val hTop = Path().apply {
+                    moveTo(s * 0.68f, s * 0.22f)
+                    lineTo(s * 0.82f, s * 0.32f)
+                    lineTo(s * 0.68f, s * 0.42f)
+                    close()
+                }
+                val hBot = Path().apply {
+                    moveTo(s * 0.32f, s * 0.58f)
+                    lineTo(s * 0.18f, s * 0.68f)
+                    lineTo(s * 0.32f, s * 0.78f)
+                    close()
+                }
+                c.drawPath(hTop, p)
+                c.drawPath(hBot, p)
+                if (kind == "repeat_one") {
+                    val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = tintColor
+                        textSize = s * 0.34f
+                        textAlign = Paint.Align.CENTER
+                        typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    }
+                    c.drawText("1", s * 0.50f, s * 0.61f, tp)
+                }
+            }
         }
         return bmp
     }
@@ -607,6 +704,14 @@ class SwaraPlaybackService : MediaSessionService() {
         artistView?.text = artist
         val iconSize = (28 * resources.displayMetrics.density).roundToInt()
         playPauseIcon?.setImageBitmap(drawMediaIcon(if (exo.isPlaying) "pause" else "play", iconSize))
+        val subIconSize = (22 * resources.displayMetrics.density).roundToInt()
+        val dimColor = Color.parseColor("#88FFFFFF")
+        shuffleIcon?.setImageBitmap(
+            drawMediaIcon("shuffle", subIconSize, if (exo.shuffleModeEnabled) accentColorInt else dimColor),
+        )
+        val repKind = if (exo.repeatMode == Player.REPEAT_MODE_ONE) "repeat_one" else "repeat"
+        val repColor = if (exo.repeatMode == Player.REPEAT_MODE_OFF) dimColor else accentColorInt
+        repeatIcon?.setImageBitmap(drawMediaIcon(repKind, subIconSize, repColor))
 
         if (artUrl.isNotBlank()) {
             val cached = artCache[artUrl]
@@ -729,6 +834,8 @@ class SwaraPlaybackService : MediaSessionService() {
             remainView = null
             squigglyProgressView = null
             playPauseIcon = null
+            shuffleIcon = null
+            repeatIcon = null
         } else {
             root.setPadding(dp(18), dp(16), dp(18), dp(14))
 
@@ -833,21 +940,40 @@ class SwaraPlaybackService : MediaSessionService() {
                 gravity = Gravity.CENTER
             }
             val iconPx = dp(28)
-            val makeIconBtn = { kind: String, onClick: () -> Unit ->
+            val subIconPx = dp(22)
+            val makeIconBtn = { kind: String, sizePx: Int, onClick: () -> Unit ->
                 ImageView(this).apply {
-                    setImageBitmap(drawMediaIcon(kind, iconPx))
-                    setPadding(dp(20), dp(4), dp(20), dp(2))
+                    setImageBitmap(drawMediaIcon(kind, sizePx))
+                    setPadding(dp(12), dp(4), dp(12), dp(2))
                     setOnClickListener { onClick() }
                 }
             }
-            ctrlRow.addView(makeIconBtn("prev") { player?.seekToPrevious() })
-            val pBtn = makeIconBtn("pause") {
+            val repBtn = makeIconBtn("repeat", subIconPx) {
+                val exo = player ?: return@makeIconBtn
+                exo.repeatMode = when (exo.repeatMode) {
+                    Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                    Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                    else -> Player.REPEAT_MODE_OFF
+                }
+                refreshDynamicIsland()
+            }
+            repeatIcon = repBtn
+            ctrlRow.addView(repBtn)
+            ctrlRow.addView(makeIconBtn("prev", iconPx) { player?.seekToPrevious() })
+            val pBtn = makeIconBtn("pause", iconPx) {
                 val exo = player ?: return@makeIconBtn
                 if (exo.isPlaying) exo.pause() else exo.play()
             }
             playPauseIcon = pBtn
             ctrlRow.addView(pBtn)
-            ctrlRow.addView(makeIconBtn("next") { player?.seekToNextMediaItem() })
+            ctrlRow.addView(makeIconBtn("next", iconPx) { player?.seekToNextMediaItem() })
+            val shufBtn = makeIconBtn("shuffle", subIconPx) {
+                val exo = player ?: return@makeIconBtn
+                exo.shuffleModeEnabled = !exo.shuffleModeEnabled
+                refreshDynamicIsland()
+            }
+            shuffleIcon = shufBtn
+            ctrlRow.addView(shufBtn)
             root.addView(ctrlRow)
         }
 
@@ -917,6 +1043,8 @@ class SwaraPlaybackService : MediaSessionService() {
         remainView = null
         squigglyProgressView = null
         playPauseIcon = null
+        shuffleIcon = null
+        repeatIcon = null
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
@@ -948,6 +1076,8 @@ class SwaraPlaybackService : MediaSessionService() {
         }
         mediaSession = null
         player = null
+        runCatching { imgExecutor.shutdownNow() }
+        runCatching { cacheExecutor.shutdownNow() }
         super.onDestroy()
     }
 }
