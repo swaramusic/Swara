@@ -192,6 +192,7 @@ class SwaraPlaybackService : MediaSessionService() {
             activeService?.streamCache?.clear()
         }
 
+        @OptIn(UnstableApi::class)
         fun setSpatial8D(enabled: Boolean) {
             pending8D = enabled
             val svc = activeService
@@ -264,6 +265,7 @@ class SwaraPlaybackService : MediaSessionService() {
             }
         }
 
+        @OptIn(UnstableApi::class)
         fun applyEqualizerBands(bandsDb: List<Float>) {
             pendingBandsDb = bandsDb
             val isFlat = bandsDb.all { kotlin.math.abs(it) < 0.25f }
@@ -363,7 +365,7 @@ class SwaraPlaybackService : MediaSessionService() {
                         songCacheDir.mkdirs()
                         val tmp = java.io.File(songCacheDir, "$videoId.m4a.tmp")
                         val req = okhttp3.Request.Builder().url(url).build()
-                        okhttp3.OkHttpClient().newCall(req).execute().use { res ->
+                        artHttpClient.newCall(req).execute().use { res ->
                             if (res.isSuccessful) {
                                 res.body?.byteStream()?.use { inp ->
                                     tmp.outputStream().use { out -> inp.copyTo(out) }
@@ -948,6 +950,7 @@ class SwaraPlaybackService : MediaSessionService() {
         }
         mediaSession = null
         player = null
+        runCatching { imgExecutor.shutdownNow() }
         super.onDestroy()
     }
 }
