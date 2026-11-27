@@ -254,17 +254,23 @@ internal fun SettingsScreen(
             if (expandedGroup == "audio") {
                 Column(modifier = Modifier.padding(start = 12.dp, end = 4.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        listOf("high" to "Ultra", "medium" to "Normal", "low" to S.low).forEach { (id, label) ->
+                        listOf("high" to "Best (Max)", "medium" to "Normal (128k)", "low" to "Saver (48k)").forEach { (id, label) ->
                             val selected = audioQuality == id
                             Surface(
                                 color = if (selected) primaryColor else TextInk.copy(alpha = 0.08f),
                                 shape = RoundedCornerShape(50),
                                 modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).clickable { onSelectAudioQuality(id) }
                             ) {
-                                Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (selected) Color.White else TextInk, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 8.dp))
+                                Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (selected) Color.White else TextInk, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 8.dp))
                             }
                         }
                     }
+                    Text(
+                        "Streaming selects highest source bitrate (~160–256kbps Opus/AAC). Local FLAC/WAV plays in native Lossless.",
+                        fontSize = 11.sp,
+                        color = TextInk.copy(alpha = 0.55f),
+                        lineHeight = 15.sp,
+                    )
                     SettingsFlatRow(Icons.Default.Tune, S.soundStyleBtn, primaryColor, onClick = onOpenSoundStyle)
                     SettingsFlatRow(Icons.Default.GraphicEq, S.eqBtn, primaryColor, onClick = onOpenEq)
                     val sleepLabel = if (sleepRemainingSec > 0) "Sleep Timer: ${formatMs(sleepRemainingSec * 1000L)}" else S.sleepTimerOff

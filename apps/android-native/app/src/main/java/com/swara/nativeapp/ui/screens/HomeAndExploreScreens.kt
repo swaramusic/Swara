@@ -1,4 +1,4 @@
-﻿package com.swara.nativeapp
+package com.swara.nativeapp
 
 import android.Manifest
 import android.content.Intent
@@ -284,6 +284,29 @@ internal fun HomeScreen(
                             color = TextInk,
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
                         )
+                    }
+                }
+            }
+        }
+
+        // Show trending songs directly under "Trending Songs For You" chips when "All" is active
+        val trendingPreviewTracks = if (activeMood != "Semua") {
+            emptyList()
+        } else {
+            shelves.firstOrNull {
+                it.title.contains("Trending", ignoreCase = true) ||
+                    it.title.contains("Top", ignoreCase = true)
+            }?.tracks?.filter { it.browseId.isBlank() }?.take(10)
+                ?: shelves.flatMap { it.tracks }.filter { it.browseId.isBlank() }.distinctBy { it.id }.take(10)
+        }
+        if (trendingPreviewTracks.isNotEmpty()) {
+            item(key = "trending_preview_row") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    itemsIndexed(trendingPreviewTracks, key = { idx, t -> "tr_prev_${idx}_${t.id}" }) { idx, track ->
+                        OverlayTrackCard(track = track, onClick = { onPlay(trendingPreviewTracks, idx) })
                     }
                 }
             }

@@ -1,4 +1,4 @@
-﻿package com.swara.nativeapp
+package com.swara.nativeapp
 
 import android.Manifest
 import android.content.Intent

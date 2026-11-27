@@ -20,8 +20,13 @@ fun SwaraViewModel.importPlaylist(url: String, onSuccess: () -> Unit = {}) {
     viewModelScope.launch {
         _ui.update { it.copy(isImportingPlaylist = true, errorMessage = null) }
         val res = yt.importPlaylistFromUrl(url, gl = _ui.value.country)
-        res.onSuccess { (title, tracks) ->
-            val next = _ui.value.playlists + UserPlaylist("pl_${System.currentTimeMillis()}", title, tracks)
+        res.onSuccess { imported ->
+            val next = _ui.value.playlists + UserPlaylist(
+                id = "pl_${System.currentTimeMillis()}",
+                name = imported.title,
+                tracks = imported.tracks,
+                artworkUri = imported.artworkUrl,
+            )
             _ui.update { it.copy(playlists = next, isImportingPlaylist = false) }
             savePlaylists(next)
             onSuccess()
