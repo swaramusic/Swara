@@ -63,7 +63,8 @@ class SwaraPlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private val yt = YouTubeMusicClient()
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val imgExecutor = Executors.newSingleThreadExecutor()
+    private val imgExecutor = Executors.newFixedThreadPool(2)
+    private val cacheExecutor = Executors.newFixedThreadPool(2)
     private val artCache = ConcurrentHashMap<String, Bitmap>()
 
     private var islandRoot: LinearLayout? = null
@@ -225,7 +226,7 @@ class SwaraPlaybackService : MediaSessionService() {
             if (videoId.isBlank() || videoId.startsWith("browse:")) return
             val svc = activeService ?: return
             if (svc.streamCache.containsKey(videoId)) return
-            svc.imgExecutor.execute {
+            svc.cacheExecutor.execute {
                 runBlocking { svc.yt.resolveAudioUrl(videoId, quality = audioQuality) }.onSuccess { url ->
                     svc.streamCache[videoId] = url
                 }
@@ -362,7 +363,7 @@ class SwaraPlaybackService : MediaSessionService() {
                 .getOrElse { throw IOException(it.message ?: "Audio tidak tersedia", it) }
                 .also { streamCache[videoId] = it }
             if (songCacheEnabled && !cachedFile.exists()) {
-                imgExecutor.execute {
+                cacheExecutor.execute {
                     runCatching {
                         songCacheDir.mkdirs()
                         val tmp = java.io.File(songCacheDir, "$videoId.m4a.tmp")
@@ -408,6 +409,16 @@ class SwaraPlaybackService : MediaSessionService() {
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 refreshDynamicIsland()
+                // Pre-warm artwork bitmap immediately so Dynamic Island cover renders instantly
+                mediaItem?.let { item ->
+                    val url = item.mediaMetadata.artworkUri?.toString().orEmpty()
+                        .ifBlank { if (item.mediaId.isNotBlank()) "https://i.ytimg.com/vi/${item.mediaId}/hqdefault.jpg" else "" }
+                    if (url.isNotBlank() && !artCache.containsKey(url)) {
+                        imgExecutor.execute {
+                            fetchSafeBitmap(url)?.let { artCache[url] = it }
+                        }
+                    }
+                }
                 val nextIdx = exo.currentMediaItemIndex + 1
                 if (nextIdx in 0 until exo.mediaItemCount) {
                     prefetchTrack(exo.getMediaItemAt(nextIdx).mediaId)
@@ -937,21 +948,6 @@ class SwaraPlaybackService : MediaSessionService() {
                     setOnClickListener { onClick() }
                 }
             }
-            val shufBtn = makeIconBtn("shuffle", subIconPx) {
-                val exo = player ?: return@makeIconBtn
-                exo.shuffleModeEnabled = !exo.shuffleModeEnabled
-                refreshDynamicIsland()
-            }
-            shuffleIcon = shufBtn
-            ctrlRow.addView(shufBtn)
-            ctrlRow.addView(makeIconBtn("prev", iconPx) { player?.seekToPrevious() })
-            val pBtn = makeIconBtn("pause", iconPx) {
-                val exo = player ?: return@makeIconBtn
-                if (exo.isPlaying) exo.pause() else exo.play()
-            }
-            playPauseIcon = pBtn
-            ctrlRow.addView(pBtn)
-            ctrlRow.addView(makeIconBtn("next", iconPx) { player?.seekToNextMediaItem() })
             val repBtn = makeIconBtn("repeat", subIconPx) {
                 val exo = player ?: return@makeIconBtn
                 exo.repeatMode = when (exo.repeatMode) {
@@ -963,6 +959,21 @@ class SwaraPlaybackService : MediaSessionService() {
             }
             repeatIcon = repBtn
             ctrlRow.addView(repBtn)
+            ctrlRow.addView(makeIconBtn("prev", iconPx) { player?.seekToPrevious() })
+            val pBtn = makeIconBtn("pause", iconPx) {
+                val exo = player ?: return@makeIconBtn
+                if (exo.isPlaying) exo.pause() else exo.play()
+            }
+            playPauseIcon = pBtn
+            ctrlRow.addView(pBtn)
+            ctrlRow.addView(makeIconBtn("next", iconPx) { player?.seekToNextMediaItem() })
+            val shufBtn = makeIconBtn("shuffle", subIconPx) {
+                val exo = player ?: return@makeIconBtn
+                exo.shuffleModeEnabled = !exo.shuffleModeEnabled
+                refreshDynamicIsland()
+            }
+            shuffleIcon = shufBtn
+            ctrlRow.addView(shufBtn)
             root.addView(ctrlRow)
         }
 
@@ -1066,6 +1077,7 @@ class SwaraPlaybackService : MediaSessionService() {
         mediaSession = null
         player = null
         runCatching { imgExecutor.shutdownNow() }
+        runCatching { cacheExecutor.shutdownNow() }
         super.onDestroy()
     }
 }
