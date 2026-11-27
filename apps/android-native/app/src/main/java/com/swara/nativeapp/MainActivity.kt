@@ -96,7 +96,7 @@ internal var CardDark by mutableStateOf(Color(0xFF152033))
 internal var TextInk by mutableStateOf(Color(0xFFF2F1E8))
 internal var LangCode by mutableStateOf("en")
 internal val S: LangStrings get() = stringsFor(LangCode)
-internal val MOOD_CHIPS = listOf("Semua", "Santai", "Energi", "Fokus", "Romantis", "Galau")
+internal val MOOD_CHIPS = listOf("Semua", "Pop", "Rock", "Hip-Hop", "R&B", "Indie", "EDM", "Jazz")
 internal val SEARCH_SUGGESTIONS = listOf("Pop", "Lo-fi", "Acoustic", "Chill", "Remix")
 
 class MainActivity : ComponentActivity() {
