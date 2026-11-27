@@ -1034,7 +1034,8 @@ internal fun AboutOverlay(
 
     var isCheckingUpdate by remember { mutableStateOf(false) }
     var updateStatus by remember(LangCode) { mutableStateOf(S.tapCheckUpdates) }
-    var updateUrl by remember { mutableStateOf<String?>(null) }
+    var foundUpdate by remember { mutableStateOf<com.swara.nativeapp.ui.AppUpdateInfo?>(null) }
+    var downloadPct by remember { mutableStateOf<Int?>(null) }
     var showDevSheet by remember { mutableStateOf(false) }
     var showSupportSheet by remember { mutableStateOf(false) }
 
@@ -1045,42 +1046,18 @@ internal fun AboutOverlay(
     }
 
     val checkUpdates: () -> Unit = {
-        if (!isCheckingUpdate) {
+        if (!isCheckingUpdate && downloadPct == null) {
             isCheckingUpdate = true
             updateStatus = S.checkingUpdates
-            updateUrl = null
-            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                val res = runCatching {
-                    val client = okhttp3.OkHttpClient()
-                    val req = okhttp3.Request.Builder()
-                        .url("https://api.github.com/repos/swaramusic/Swara/releases/latest")
-                        .header("Accept", "application/vnd.github+json")
-                        .build()
-                    client.newCall(req).execute().use { r ->
-                        if (r.code == 404) {
-                            "latest" to null
-                        } else if (!r.isSuccessful) {
-                            "err" to null
-                        } else {
-                            val json = org.json.JSONObject(r.body?.string().orEmpty())
-                            val tag = json.optString("tag_name").removePrefix("v").trim()
-                            val html = json.optString("html_url").ifBlank { "https://github.com/swaramusic/Swara/releases" }
-                            if (tag.isNotBlank() && tag != appVersion) "new:$tag" to html
-                            else "latest" to null
-                        }
-                    }
-                }.getOrDefault("err" to null)
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    isCheckingUpdate = false
-                    when {
-                        res.first.startsWith("new:") -> {
-                            val v = res.first.removePrefix("new:")
-                            updateStatus = "Update available: v$v"
-                            updateUrl = res.second
-                        }
-                        res.first == "latest" -> updateStatus = "${S.latestVersionMsg} (v$appVersion)"
-                        else -> updateStatus = S.updateErrorMsg
-                    }
+            foundUpdate = null
+            scope.launch {
+                val upd = com.swara.nativeapp.ui.SwaraUpdater.checkLatestUpdate(appVersion)
+                isCheckingUpdate = false
+                if (upd != null) {
+                    foundUpdate = upd
+                    updateStatus = "Update available: v${upd.version}"
+                } else {
+                    updateStatus = "${S.latestVersionMsg} (v$appVersion)"
                 }
             }
         }
@@ -1146,14 +1123,42 @@ internal fun AboutOverlay(
                     Text(S.checkUpdates, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextInk)
                     Text(updateStatus, fontSize = 12.sp, color = TextInk.copy(alpha = 0.65f))
                 }
-                val dlUrl = updateUrl
-                if (dlUrl != null) {
+                val upd = foundUpdate
+                if (upd != null) {
                     Surface(
                         color = primaryColor,
                         shape = RoundedCornerShape(50),
-                        modifier = Modifier.clip(RoundedCornerShape(50)).clickable { openUrl(dlUrl) }
+                        modifier = Modifier.clip(RoundedCornerShape(50)).clickable {
+                            if (downloadPct == null) {
+                                val apk = upd.apkUrl
+                                if (apk != null) {
+                                    downloadPct = 0
+                                    updateStatus = "Downloading v${upd.version}..."
+                                    scope.launch {
+                                        val res = com.swara.nativeapp.ui.SwaraUpdater.downloadAndInstallApk(ctx, apk, upd.version) { pct ->
+                                            downloadPct = pct
+                                            updateStatus = "Downloading v${upd.version}... $pct%"
+                                        }
+                                        downloadPct = null
+                                        res.onSuccess { launched ->
+                                            updateStatus = if (launched) "Update ready to install" else "Allow 'Install unknown apps' then tap Update"
+                                        }.onFailure { err ->
+                                            updateStatus = "Download failed: ${err.message ?: "Error"}"
+                                        }
+                                    }
+                                } else {
+                                    openUrl(upd.htmlUrl)
+                                }
+                            }
+                        }
                     ) {
-                        Text("Download", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                        Text(
+                            downloadPct?.let { "$it%" } ?: "Update",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
                     }
                 } else {
                     Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextInk.copy(alpha = 0.55f))

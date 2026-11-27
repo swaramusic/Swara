@@ -163,7 +163,7 @@ internal fun TrackRow(
                 )
                 DropdownMenuItem(
                     text = { Text("Simpan ke Playlist", color = Color.White) },
-                    leadingIcon = { Icon(Icons.Default.QueueMusic, contentDescription = null, tint = Color.White) },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = Color.White) },
                     onClick = { menuOpen = false; onSaveToPlaylist() }
                 )
                 DropdownMenuItem(
