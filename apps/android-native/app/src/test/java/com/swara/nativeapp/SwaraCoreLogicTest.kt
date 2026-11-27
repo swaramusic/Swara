@@ -4,6 +4,7 @@ import com.swara.nativeapp.data.YouTubeMusicClient
 import com.swara.nativeapp.model.Track
 import com.swara.nativeapp.model.romanizeLyricLine
 import com.swara.nativeapp.model.stringsFor
+import com.swara.nativeapp.ui.SwaraUpdater
 import com.swara.nativeapp.ui.buildShuffledQueue
 import com.swara.nativeapp.ui.sanitizeRemoteArtworkUrl
 import org.junit.Assert.assertEquals
@@ -164,5 +165,32 @@ class SwaraCoreLogicTest {
         assertTrue(idStrings.home.isNotBlank())
         assertTrue(enStrings.home.isNotBlank())
         assertTrue(fallback.home.isNotBlank())
+    }
+
+    @Test
+    fun lyrics_title_and_artist_cleaning_strips_noise() {
+        val client = YouTubeMusicClient()
+        assertEquals(
+            "Berbeza Kasta",
+            client.cleanTrackTitleForLyrics("Berbeza Kasta (Official Music Video) | Lirik"),
+        )
+        assertEquals(
+            "Shape of You",
+            client.cleanTrackTitleForLyrics("Shape of You - Official Audio"),
+        )
+        assertEquals(
+            "Thomas Arya",
+            client.cleanArtistForLyrics("Thomas Arya - Topic"),
+        )
+    }
+
+    @Test
+    fun updater_formats_release_notes_and_compares_versions() {
+        assertTrue(SwaraUpdater.isVersionNewer("v1.0.2", "1.0.1"))
+        assertTrue(!SwaraUpdater.isVersionNewer("1.0.2", "1.0.2"))
+        val raw = "**Full Changelog**: https://github.com/swaramusic/Swara/compare/v1.0.1...v1.0.2"
+        val formatted = SwaraUpdater.formatReleaseNotes(raw)
+        assertTrue(!formatted.contains("**"))
+        assertTrue(!formatted.contains("https://github.com"))
     }
 }
