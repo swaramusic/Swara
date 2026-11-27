@@ -257,14 +257,7 @@ internal fun HomeScreen(
             Text(S.trendingForYou, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = TextInk, modifier = Modifier.padding(start = 16.dp, top = 4.dp))
         }
         item(key = "mood_chips_row") {
-            val moodLabels = mapOf(
-                "Semua" to S.moodAll,
-                "Santai" to S.moodChill,
-                "Energi" to S.moodEnergy,
-                "Fokus" to S.moodFocus,
-                "Romantis" to S.moodRomantic,
-                "Galau" to S.moodSad,
-            )
+            val moodLabels = mapOf("Semua" to S.moodAll)
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -401,7 +394,8 @@ internal fun HomeScreen(
                     )
                 }
                 if (shelf.isList) {
-                    itemsIndexed(shelf.tracks.take(4), key = { _, t -> "${shelf.title}_${t.id}" }) { idx, track ->
+                    val listLimit = if (activeMood != "Semua") 10 else 4
+                    itemsIndexed(shelf.tracks.take(listLimit), key = { _, t -> "${shelf.title}_${t.id}" }) { idx, track ->
                         TrackRow(
                             track = track,
                             isLiked = track.id in likedIds,

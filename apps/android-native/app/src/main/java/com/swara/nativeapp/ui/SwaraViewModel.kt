@@ -428,22 +428,13 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
                             out
                         }
                     } else {
-                        val enMood =
-                            when (mood) {
-                                "Santai" -> "chill"
-                                "Energi" -> "energy"
-                                "Fokus" -> "focus"
-                                "Romantis" -> "romantic"
-                                "Galau" -> "sad"
-                                else -> mood
-                            }
-                        val moodTracks = yt.searchTracks(
-                            "$enMood music $countryName",
+                        val genreTracks = yt.searchTracks(
+                            "trending $mood music $countryName",
                             hl = hl,
                             gl = gl
-                        )
-                        if (moodTracks.isNotEmpty()) {
-                            listOf(Shelf("$enMood • $countryName", moodTracks, isList = true))
+                        ).filter { it.browseId.isBlank() }
+                        if (genreTracks.isNotEmpty()) {
+                            listOf(Shelf("Trending $mood • $countryName", genreTracks, isList = true))
                         } else {
                             emptyList()
                         }
