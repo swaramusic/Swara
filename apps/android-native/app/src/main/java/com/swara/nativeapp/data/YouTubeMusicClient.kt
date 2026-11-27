@@ -341,6 +341,8 @@ class YouTubeMusicClient {
                     }
                     val token = Regex("\"accessToken\":\"([^\"]+)\"").find(html)?.groupValues?.get(1)
                     var plTitle = "Playlist Spotify"
+                    var plArtwork = Regex("<meta\\s+property=[\"']og:image[\"']\\s+content=[\"']([^\"']+)[\"']")
+                        .find(html)?.groupValues?.get(1)?.trim().orEmpty()
                     val queries = mutableListOf<Pair<String, String>>()
 
                     if (!token.isNullOrBlank()) {
@@ -398,6 +400,14 @@ class YouTubeMusicClient {
                             val plV2 = pfJson.optJSONObject("data")?.optJSONObject("playlistV2") ?: break
                             val name = plV2.optString("name").trim()
                             if (name.isNotBlank()) plTitle = name
+                            if (plArtwork.isBlank()) {
+                                val imgSources = plV2.optJSONObject("images")
+                                    ?.optJSONArray("items")
+                                    ?.optJSONObject(0)
+                                    ?.optJSONArray("sources")
+                                val bestImg = imgSources?.optJSONObject(0)?.optString("url")?.trim()
+                                if (!bestImg.isNullOrBlank()) plArtwork = bestImg
+                            }
                             val content = plV2.optJSONObject("content") ?: break
                             totalCount = content.optInt("totalCount", 0)
                             val items = content.optJSONArray("items") ?: break
@@ -432,6 +442,12 @@ class YouTubeMusicClient {
                             ?.optJSONObject("state")?.optJSONObject("data")?.optJSONObject("entity")
                             ?: return@withContext Result.failure(Exception("Data playlist Spotify kosong"))
                         plTitle = entity.optString("name").ifBlank { entity.optString("title") }.ifBlank { "Playlist Spotify" }
+                        if (plArtwork.isBlank()) {
+                            val coverSources = entity.optJSONObject("coverArt")?.optJSONArray("sources")
+                                ?: entity.optJSONObject("visualIdentity")?.optJSONArray("image")
+                            val bestCover = coverSources?.optJSONObject(0)?.optString("url")?.trim()
+                            if (!bestCover.isNullOrBlank()) plArtwork = bestCover
+                        }
                         val trackList = entity.optJSONArray("trackList") ?: JSONArray()
                         for (i in 0 until trackList.length()) {
                             val item = trackList.optJSONObject(i) ?: continue
@@ -455,7 +471,8 @@ class YouTubeMusicClient {
                         Result.failure(Exception("Tidak ada lagu Spotify yang cocok ditemukan"))
                     } else {
                         val distinct = resolved.distinctBy { it.id }
-                        Result.success(ImportedPlaylist(plTitle, distinct.firstOrNull()?.artworkUrl.orEmpty(), distinct))
+                        val finalArt = plArtwork.ifBlank { distinct.firstOrNull()?.artworkUrl.orEmpty() }
+                        Result.success(ImportedPlaylist(plTitle, finalArt, distinct))
                     }
                 }
 

@@ -228,19 +228,31 @@ internal fun SwaraViewModel.savePlaylists(list: List<UserPlaylist>) {
 
 internal fun SwaraViewModel.loadPlaylists(): List<UserPlaylist> = runCatching {
     val arr = JSONArray(prefs.getString("playlists", "[]"))
-    (0 until arr.length()).map { i ->
-        val o = arr.getJSONObject(i)
-        val tArr = o.getJSONArray("tracks")
-        val tracks =
-            (0 until tArr.length()).map { j ->
-                val to = tArr.getJSONObject(j)
-                Track(
-                    to.getString("id"),
-                    to.getString("t"),
-                    to.getString("a"),
-                    to.getString("img")
-                )
+    (0 until arr.length()).mapNotNull { i ->
+        runCatching {
+            val o = arr.getJSONObject(i)
+            val tArr = o.optJSONArray("tracks") ?: JSONArray()
+            val tracks =
+                (0 until tArr.length()).mapNotNull { j ->
+                    runCatching {
+                        val to = tArr.getJSONObject(j)
+                        val id = to.optString("id", "")
+                        if (id.isBlank()) null
+                        else Track(
+                            id,
+                            to.optString("t", ""),
+                            to.optString("a", ""),
+                            to.optString("img", "")
+                        )
+                    }.getOrNull()
+                }
+            val id = o.optString("id", "")
+            val name = o.optString("name", "")
+            if (id.isBlank() || name.isBlank()) null
+            else {
+                val art = o.optString("img", "").ifBlank { tracks.firstOrNull()?.artworkUrl.orEmpty() }
+                UserPlaylist(id, name, tracks, art)
             }
-        UserPlaylist(o.getString("id"), o.getString("name"), tracks, o.optString("img", ""))
+        }.getOrNull()
     }
 }.getOrDefault(emptyList())
