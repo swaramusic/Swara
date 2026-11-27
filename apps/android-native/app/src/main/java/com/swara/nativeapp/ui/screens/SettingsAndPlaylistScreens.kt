@@ -1360,12 +1360,12 @@ internal fun StorageOverlay(
     }
 
     fun fmtBytes(b: Long): String = when {
-        b >= 1024L * 1024L * 1024L -> String.format("%.1f GB", b / (1024.0 * 1024.0 * 1024.0))
-        b >= 1024L * 1024L -> String.format("%.0f MB", b / (1024.0 * 1024.0))
-        b >= 1024L -> String.format("%.0f KB", b / 1024.0)
+        b >= 1024L * 1024L * 1024L -> String.format(java.util.Locale.US, "%.1f GB", b / (1024.0 * 1024.0 * 1024.0))
+        b >= 1024L * 1024L -> String.format(java.util.Locale.US, "%.0f MB", b / (1024.0 * 1024.0))
+        b >= 1024L -> String.format(java.util.Locale.US, "%.0f KB", b / 1024.0)
         else -> "$b B"
     }
-    fun fmtMaxMb(mb: Int): String = if (mb >= 1024) String.format("%.1f GB", mb / 1024.0) else "$mb MB"
+    fun fmtMaxMb(mb: Int): String = if (mb >= 1024) String.format(java.util.Locale.US, "%.1f GB", mb / 1024.0) else "$mb MB"
 
     Column(
         modifier = Modifier

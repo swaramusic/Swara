@@ -1255,8 +1255,9 @@ fun SwaraNativeApp(
                 }
             }
 
-            if (showSongMenuSheet && state.currentTrack != null) {
-                val cur = state.currentTrack!!
+            val menuTrack = state.currentTrack
+            if (showSongMenuSheet && menuTrack != null) {
+                val cur = menuTrack
                 val ctx = androidx.compose.ui.platform.LocalContext.current
                 ModalBottomSheet(
                     onDismissRequest = { showSongMenuSheet = false },
