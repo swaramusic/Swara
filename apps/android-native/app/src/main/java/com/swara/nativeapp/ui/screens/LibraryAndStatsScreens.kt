@@ -453,9 +453,15 @@ internal fun LibraryScreen(
     }
 }
 
+internal fun UserPlaylist.coverModel(): Any? = when {
+    artworkUri.startsWith("http", ignoreCase = true) -> artworkUri
+    artworkUri.isNotBlank() -> java.io.File(artworkUri)
+    else -> tracks.firstOrNull()?.artworkUrl
+}
+
 @Composable
 internal fun PlaylistGridCard(pl: UserPlaylist, primaryColor: Color, modifier: Modifier = Modifier, onOpen: () -> Unit) {
-    val coverModel: Any? = if (pl.artworkUri.isNotBlank()) java.io.File(pl.artworkUri) else pl.tracks.firstOrNull()?.artworkUrl
+    val coverModel: Any? = pl.coverModel()
     Column(
         modifier = modifier.clip(RoundedCornerShape(16.dp)).clickable(onClick = onOpen),
         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -486,7 +492,7 @@ internal fun PlaylistListRow(pl: UserPlaylist, primaryColor: Color, onOpen: () -
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable(onClick = onOpen)
     ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            val coverModel: Any? = if (pl.artworkUri.isNotBlank()) java.io.File(pl.artworkUri) else pl.tracks.firstOrNull()?.artworkUrl
+            val coverModel: Any? = pl.coverModel()
             if (coverModel != null) {
                 AsyncImage(model = coverModel, contentDescription = pl.name, contentScale = ContentScale.Crop, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)))
             } else {

@@ -584,6 +584,7 @@ internal fun UserPlaylistOverlay(
     }
 
     val coverModel: Any? = when {
+        playlist.artworkUri.startsWith("http", ignoreCase = true) -> playlist.artworkUri
         playlist.artworkUri.isNotBlank() -> java.io.File(playlist.artworkUri)
         else -> playlist.tracks.firstOrNull()?.artworkUrl
     }
