@@ -872,9 +872,13 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun loadTrackList(key: String): List<Track> = runCatching {
         val arr = org.json.JSONArray(prefs.getString(key, "[]"))
-        (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            Track(o.getString("id"), o.getString("t"), o.getString("a"), o.getString("img"))
+        (0 until arr.length()).mapNotNull { i ->
+            runCatching {
+                val o = arr.getJSONObject(i)
+                val id = o.optString("id", "")
+                if (id.isBlank()) null
+                else Track(id, o.optString("t", ""), o.optString("a", ""), o.optString("img", ""))
+            }.getOrNull()
         }
     }.getOrDefault(emptyList())
 
