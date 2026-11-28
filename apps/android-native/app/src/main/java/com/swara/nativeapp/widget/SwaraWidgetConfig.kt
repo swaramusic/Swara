@@ -219,4 +219,37 @@ object SwaraWidgetPrefs {
         c.drawBitmap(scaled, rect, rect, p)
         return out
     }
+
+    fun renderTurntableBitmap(coverBmp: Bitmap?, sizePx: Int = 220): Bitmap {
+        val out = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+        val c = Canvas(out)
+        val cx = sizePx / 2f
+        val cy = sizePx / 2f
+        val r = sizePx * 0.48f
+
+        val discPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#11131A") }
+        c.drawCircle(cx, cy, r, discPaint)
+
+        val groovePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1.5f
+            color = Color.argb(45, 255, 255, 255)
+        }
+        c.drawCircle(cx, cy, r * 0.88f, groovePaint)
+        c.drawCircle(cx, cy, r * 0.76f, groovePaint)
+        c.drawCircle(cx, cy, r * 0.64f, groovePaint)
+
+        if (coverBmp != null) {
+            val labelSize = (sizePx * 0.46f).toInt()
+            val centerArt = shapeCoverBitmap(coverBmp, WidgetCoverShape.CIRCLE, labelSize)
+            c.drawBitmap(centerArt, cx - labelSize / 2f, cy - labelSize / 2f, null)
+        } else {
+            val lblPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#2563EB") }
+            c.drawCircle(cx, cy, r * 0.44f, lblPaint)
+        }
+
+        val holePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#0B111E") }
+        c.drawCircle(cx, cy, r * 0.09f, holePaint)
+        return out
+    }
 }

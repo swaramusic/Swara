@@ -113,6 +113,42 @@
                 android:resource="@xml/swara_widget_1x1_info" />
         </receiver>
 
+        <receiver
+            android:name=".widget.SwaraPlaylistsWidgetProvider"
+            android:label="Playlists (2×2)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/swara_widget_playlists_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.SwaraTurntableWidgetProvider"
+            android:label="Turntable (2×2)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/swara_widget_turntable_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.SwaraIdentifyWidgetProvider"
+            android:label="Music Recognition (4×1)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/swara_widget_identify_info" />
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
