@@ -198,6 +198,107 @@ open class SwaraWidgetProvider : AppWidgetProvider() {
                 }
                 mgr.updateAppWidget(ids, views)
             }
+
+            updatePlaylistsWidget(context, mgr, settings)
+            updateTurntableWidget(context, mgr, settings, openSettingsIntent)
+            updateIdentifyWidget(context, mgr, settings, openAppIntent)
+        }
+
+        private fun updatePlaylistsWidget(
+            context: Context,
+            mgr: AppWidgetManager,
+            settings: SwaraWidgetSettings,
+        ) {
+            val ids = mgr.getAppWidgetIds(ComponentName(context, SwaraPlaylistsWidgetProvider::class.java))
+            if (ids.isEmpty()) return
+            val bgBmp = SwaraWidgetPrefs.renderWidgetBackground(280, 280, settings, lastArtBitmap)
+            val textColor = if (settings.style == WidgetStyle.LIGHT) Color.parseColor("#111827") else Color.WHITE
+            val subColor = if (settings.style == WidgetStyle.LIGHT) Color.parseColor("#6B7280") else Color.parseColor("#BBFFFFFF")
+
+            val playlists = runCatching {
+                val raw = context.getSharedPreferences("swara_native_prefs", Context.MODE_PRIVATE)
+                    .getString("playlists", "[]") ?: "[]"
+                val arr = org.json.JSONArray(raw)
+                (0 until minOf(arr.length(), 3)).mapNotNull { i ->
+                    val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                    val name = o.optString("name", "").trim()
+                    val count = o.optJSONArray("tracks")?.length() ?: 0
+                    if (name.isBlank()) null else "• $name ($count)"
+                }
+            }.getOrDefault(emptyList())
+
+            val openLibIntent = PendingIntent.getActivity(
+                context,
+                21,
+                Intent(context, MainActivity::class.java).apply {
+                    putExtra("swara_widget_route", "library")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                },
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+
+            val views = RemoteViews(context.packageName, R.layout.swara_widget_playlists).apply {
+                setImageViewBitmap(R.id.widget_bg, bgBmp)
+                setTextColor(R.id.widget_pl_header, textColor)
+                setTextColor(R.id.widget_pl_1, textColor)
+                setTextColor(R.id.widget_pl_2, subColor)
+                setTextColor(R.id.widget_pl_3, subColor)
+                setTextViewText(R.id.widget_pl_1, playlists.getOrElse(0) { "• Liked Songs" })
+                setTextViewText(R.id.widget_pl_2, playlists.getOrElse(1) { "• Tap to open Library" })
+                setTextViewText(R.id.widget_pl_3, playlists.getOrElse(2) { "" })
+                setOnClickPendingIntent(R.id.widget_root, openLibIntent)
+            }
+            mgr.updateAppWidget(ids, views)
+        }
+
+        private fun updateTurntableWidget(
+            context: Context,
+            mgr: AppWidgetManager,
+            settings: SwaraWidgetSettings,
+            openSettingsIntent: PendingIntent,
+        ) {
+            val ids = mgr.getAppWidgetIds(ComponentName(context, SwaraTurntableWidgetProvider::class.java))
+            if (ids.isEmpty()) return
+            val bgBmp = SwaraWidgetPrefs.renderWidgetBackground(280, 280, settings, lastArtBitmap)
+            val discBmp = SwaraWidgetPrefs.renderTurntableBitmap(lastArtBitmap)
+            val textColor = if (settings.style == WidgetStyle.LIGHT) Color.parseColor("#111827") else Color.WHITE
+            val views = RemoteViews(context.packageName, R.layout.swara_widget_turntable).apply {
+                setImageViewBitmap(R.id.widget_bg, bgBmp)
+                setImageViewBitmap(R.id.widget_turntable_disc, discBmp)
+                setTextViewText(R.id.widget_title, lastTitle)
+                setTextColor(R.id.widget_title, textColor)
+                setOnClickPendingIntent(R.id.widget_root, openSettingsIntent)
+                setOnClickPendingIntent(R.id.widget_turntable_disc, actionPendingIntent(context, ACTION_PLAY_PAUSE, 22))
+            }
+            mgr.updateAppWidget(ids, views)
+        }
+
+        private fun updateIdentifyWidget(
+            context: Context,
+            mgr: AppWidgetManager,
+            settings: SwaraWidgetSettings,
+            fallbackAppIntent: PendingIntent,
+        ) {
+            val ids = mgr.getAppWidgetIds(ComponentName(context, SwaraIdentifyWidgetProvider::class.java))
+            if (ids.isEmpty()) return
+            val bgBmp = SwaraWidgetPrefs.renderWidgetBackground(520, 120, settings, lastArtBitmap)
+            val textColor = if (settings.style == WidgetStyle.LIGHT) Color.parseColor("#111827") else Color.WHITE
+            val openExploreIntent = PendingIntent.getActivity(
+                context,
+                23,
+                Intent(context, MainActivity::class.java).apply {
+                    putExtra("swara_widget_route", "explore")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                },
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val views = RemoteViews(context.packageName, R.layout.swara_widget_identify).apply {
+                setImageViewBitmap(R.id.widget_bg, bgBmp)
+                setTextColor(R.id.widget_identify_label, textColor)
+                setOnClickPendingIntent(R.id.widget_root, openExploreIntent ?: fallbackAppIntent)
+                setOnClickPendingIntent(R.id.widget_identify_bar, openExploreIntent ?: fallbackAppIntent)
+            }
+            mgr.updateAppWidget(ids, views)
         }
 
         private fun fmtTime(ms: Long): String {
@@ -224,3 +325,9 @@ class SwaraSquareWidgetProvider : SwaraWidgetProvider()
 class SwaraTallWidgetProvider : SwaraWidgetProvider()
 
 class SwaraOneByOneWidgetProvider : SwaraWidgetProvider()
+
+class SwaraPlaylistsWidgetProvider : SwaraWidgetProvider()
+
+class SwaraTurntableWidgetProvider : SwaraWidgetProvider()
+
+class SwaraIdentifyWidgetProvider : SwaraWidgetProvider()

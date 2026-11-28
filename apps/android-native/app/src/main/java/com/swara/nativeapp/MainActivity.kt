@@ -96,6 +96,7 @@ internal var CardDark by mutableStateOf(Color(0xFF152033))
 internal var TextInk by mutableStateOf(Color(0xFFF2F1E8))
 internal var LangCode by mutableStateOf("en")
 internal val S: LangStrings get() = stringsFor(LangCode)
+internal var widgetRouteOverride by mutableStateOf<String?>(null)
 internal val MOOD_CHIPS = listOf("Semua", "Santai", "Energi", "Fokus", "Romantis", "Galau")
 internal val SEARCH_SUGGESTIONS = listOf("Pop", "Lo-fi", "Acoustic", "Chill", "Remix")
 
@@ -136,6 +137,12 @@ class MainActivity : ComponentActivity() {
         )
 
         setContent { SwaraThemeRoot() }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        widgetRouteOverride = intent.getStringExtra("swara_widget_route")
     }
 
     override fun onStart() {
@@ -508,6 +515,16 @@ fun SwaraNativeApp(
 ) {
     val state by vm.ui.collectAsState()
     var activeTab by remember { mutableStateOf(NavTab.HOME) }
+    val activityIntent = (androidx.compose.ui.platform.LocalContext.current as? android.app.Activity)?.intent
+    LaunchedEffect(widgetRouteOverride, activityIntent) {
+        val route = widgetRouteOverride ?: activityIntent?.getStringExtra("swara_widget_route")
+        when (route) {
+            "library" -> activeTab = NavTab.LIBRARY
+            "explore" -> activeTab = NavTab.EXPLORE
+        }
+        widgetRouteOverride = null
+        activityIntent?.removeExtra("swara_widget_route")
+    }
     var searchQuery by remember { mutableStateOf("") }
     var showFullscreen by remember { mutableStateOf(false) }
     var showEqSheet by remember { mutableStateOf(false) }
