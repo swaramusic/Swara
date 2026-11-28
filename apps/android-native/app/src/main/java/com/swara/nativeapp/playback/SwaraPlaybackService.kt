@@ -67,6 +67,7 @@ class SwaraPlaybackService : MediaSessionService() {
     private val imgExecutor = Executors.newFixedThreadPool(2)
     private val cacheExecutor = Executors.newFixedThreadPool(2)
     private val artCache = ConcurrentHashMap<String, Bitmap>()
+    @Volatile private var autoQueueInFlightForId: String? = null
 
     private var islandRoot: LinearLayout? = null
     private var isIslandExpanded = false
@@ -429,6 +430,15 @@ class SwaraPlaybackService : MediaSessionService() {
                 if (nextIdx in 0 until exo.mediaItemCount) {
                     prefetchTrack(exo.getMediaItemAt(nextIdx).mediaId)
                 }
+                if (exo.currentMediaItemIndex >= exo.mediaItemCount - 1 && exo.repeatMode == Player.REPEAT_MODE_OFF) {
+                    enqueueRelatedContinuation(exo, playNextOnAdd = false)
+                }
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED && exo.repeatMode == Player.REPEAT_MODE_OFF && exo.mediaItemCount > 0) {
+                    enqueueRelatedContinuation(exo, playNextOnAdd = true)
+                }
             }
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
@@ -442,10 +452,12 @@ class SwaraPlaybackService : MediaSessionService() {
 
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
                 refreshDynamicIsland()
+                refreshWidget()
             }
 
             override fun onRepeatModeChanged(repeatMode: Int) {
                 refreshDynamicIsland()
+                refreshWidget()
             }
         })
 
@@ -503,8 +515,73 @@ class SwaraPlaybackService : MediaSessionService() {
                     refreshWidget()
                 }
             }
+            SwaraWidgetProvider.ACTION_SHUFFLE -> {
+                player?.let { exo ->
+                    exo.shuffleModeEnabled = !exo.shuffleModeEnabled
+                    refreshWidget()
+                }
+            }
+            SwaraWidgetProvider.ACTION_REPEAT -> {
+                player?.let { exo ->
+                    exo.repeatMode = when (exo.repeatMode) {
+                        Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                        Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                        else -> Player.REPEAT_MODE_OFF
+                    }
+                    refreshWidget()
+                }
+            }
         }
         return super.onStartCommand(intent, flags, startId)
+    }
+
+    private fun enqueueRelatedContinuation(exo: ExoPlayer, playNextOnAdd: Boolean) {
+        val current = exo.currentMediaItem ?: return
+        val videoId = current.mediaId
+        if (videoId.isBlank() || videoId.startsWith("loc_") || videoId.startsWith("browse:")) {
+            if (playNextOnAdd && exo.mediaItemCount > 0) {
+                exo.seekTo(0, 0L)
+                exo.prepare()
+                exo.play()
+            }
+            return
+        }
+        if (autoQueueInFlightForId == videoId && !playNextOnAdd) return
+        autoQueueInFlightForId = videoId
+        cacheExecutor.execute {
+            val related = runCatching { runBlocking { yt.fetchRelatedTracks(videoId) } }.getOrDefault(emptyList())
+            mainHandler.post {
+                if (player !== exo) return@post
+                val existingIds = (0 until exo.mediaItemCount).map { exo.getMediaItemAt(it).mediaId }.toSet()
+                val fresh = related.filter { it.id !in existingIds && it.browseId.isBlank() }.take(10)
+                if (fresh.isNotEmpty()) {
+                    val items = fresh.map { t ->
+                        MediaItem.Builder()
+                            .setMediaId(t.id)
+                            .setUri(trackUri(t.id))
+                            .setMediaMetadata(
+                                androidx.media3.common.MediaMetadata.Builder()
+                                    .setTitle(t.title)
+                                    .setArtist(t.artist)
+                                    .setArtworkUri(Uri.parse(t.artworkUrl))
+                                    .build()
+                            )
+                            .build()
+                    }
+                    exo.addMediaItems(items)
+                    if (playNextOnAdd || exo.playbackState == Player.STATE_ENDED) {
+                        exo.seekToNextMediaItem()
+                        exo.prepare()
+                        exo.play()
+                    }
+                } else if (playNextOnAdd && exo.mediaItemCount > 0) {
+                    exo.seekTo(0, 0L)
+                    exo.prepare()
+                    exo.play()
+                }
+                autoQueueInFlightForId = null
+            }
+        }
     }
 
     private fun refreshWidget() {
@@ -518,7 +595,15 @@ class SwaraPlaybackService : MediaSessionService() {
                 if (id.isNotBlank()) "https://i.ytimg.com/vi/$id/hqdefault.jpg" else ""
             }
         val bmp = if (artUrl.isNotBlank()) artCache[artUrl] else null
-        SwaraWidgetProvider.updateAllWidgets(this, title, artist, exo.isPlaying, bmp)
+        SwaraWidgetProvider.updateAllWidgets(
+            this,
+            title,
+            artist,
+            exo.isPlaying,
+            bmp,
+            exo.shuffleModeEnabled,
+            exo.repeatMode,
+        )
     }
 
     @OptIn(UnstableApi::class)

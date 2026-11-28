@@ -46,6 +46,7 @@
 
         <receiver
             android:name=".widget.SwaraWidgetProvider"
+            android:label="Swara Compact (4×1)"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -53,6 +54,30 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/swara_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.SwaraLargeWidgetProvider"
+            android:label="Swara Player Card (4×2)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/swara_widget_large_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.SwaraMiniWidgetProvider"
+            android:label="Swara Mini (2×1)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/swara_widget_mini_info" />
         </receiver>
 
         <provider
