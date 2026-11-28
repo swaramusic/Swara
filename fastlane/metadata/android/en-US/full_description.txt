@@ -1,0 +1,9 @@
+Swara is a lightweight, native Android music player built with Kotlin, Jetpack Compose (Material Design 3), and AndroidX Media3 (ExoPlayer).
+
+Features:
+- Background playback with lock-screen, Bluetooth/smartwatch, and Android Auto support
+- Floating Dynamic Island miniplayer & 8 customizable Home Screen widgets
+- 5-band Equalizer, Bass Boost, Room Reverb, Sound Styles, and Crossfade
+- Synced lyrics with optional Romaji/Hangul romanization
+- Offline downloads, local FLAC/MP3/WAV playback, and playlist importer
+- Zero ads, zero trackers, 100% open source under GPL-3.0

@@ -77,3 +77,10 @@ fun SwaraViewModel.setEqBand(index: Int, gainDb: Float) {
     _ui.update { it.copy(activeEqId = "custom", eqBands = next) }
     SwaraPlaybackService.applyEqualizerBands(next)
 }
+
+fun SwaraViewModel.setCrossfadeSeconds(seconds: Int) {
+    val s = seconds.coerceIn(0, 10)
+    prefs.edit().putInt("crossfade_sec", s).apply()
+    SwaraPlaybackService.crossfadeSeconds = s
+    _ui.update { it.copy(crossfadeSeconds = s) }
+}

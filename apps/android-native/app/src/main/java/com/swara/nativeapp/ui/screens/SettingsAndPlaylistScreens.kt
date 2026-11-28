@@ -105,11 +105,15 @@ internal fun SettingsScreen(
     listenRoomCode: String?,
     listenStatus: String?,
     romanizeLyrics: Boolean,
+    crossfadeSeconds: Int = 0,
     sleepRemainingSec: Int,
     currentTrack: Track?,
     primaryColor: Color,
     onSelectThemeMode: (String) -> Unit,
     onSelectAudioQuality: (String) -> Unit,
+    onSelectCrossfade: (Int) -> Unit = {},
+    onExportBackup: (android.net.Uri, (String) -> Unit) -> Unit = { _, _ -> },
+    onImportBackup: (android.net.Uri, (String) -> Unit) -> Unit = { _, _ -> },
     onSelectAccent: (String) -> Unit,
     onSelectCustomAccent: (Long) -> Unit,
     onSelectCountry: (String) -> Unit,
@@ -273,6 +277,19 @@ internal fun SettingsScreen(
                     )
                     SettingsFlatRow(Icons.Default.Tune, S.soundStyleBtn, primaryColor, onClick = onOpenSoundStyle)
                     SettingsFlatRow(Icons.Default.GraphicEq, S.eqBtn, primaryColor, onClick = onOpenEq)
+                    Text("Crossfade / Gapless", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextInk.copy(alpha = 0.72f))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        listOf(0 to "Gapless", 2 to "2s", 4 to "4s", 6 to "6s", 10 to "10s").forEach { (sec, lbl) ->
+                            val sel = crossfadeSeconds == sec
+                            Surface(
+                                color = if (sel) primaryColor else TextInk.copy(alpha = 0.08f),
+                                shape = RoundedCornerShape(50),
+                                modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).clickable { onSelectCrossfade(sec) },
+                            ) {
+                                Text(lbl, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = if (sel) Color.White else TextInk, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 7.dp))
+                            }
+                        }
+                    }
                     val sleepLabel = if (sleepRemainingSec > 0) "Sleep Timer: ${formatMs(sleepRemainingSec * 1000L)}" else S.sleepTimerOff
                     SettingsFlatRow(Icons.Default.Bedtime, sleepLabel, primaryColor, onClick = onCycleSleepTimer)
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -398,6 +415,41 @@ internal fun SettingsScreen(
             primaryColor = primaryColor,
             onClick = onOpenStorage
         )
+        HorizontalDivider(color = TextInk.copy(alpha = 0.08f))
+        var backupMessage by remember { mutableStateOf<String?>(null) }
+        val exportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json"),
+        ) { uri ->
+            if (uri != null) onExportBackup(uri) { backupMessage = it }
+        }
+        val importLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+        ) { uri ->
+            if (uri != null) onImportBackup(uri) { backupMessage = it }
+        }
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { exportLauncher.launch("swara-backup.json") },
+                    shape = RoundedCornerShape(50),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, TextInk.copy(alpha = 0.22f)),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Backup Data", fontSize = 12.sp, color = TextInk, fontWeight = FontWeight.SemiBold)
+                }
+                OutlinedButton(
+                    onClick = { importLauncher.launch(arrayOf("application/json", "*/*")) },
+                    shape = RoundedCornerShape(50),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, primaryColor.copy(alpha = 0.6f)),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Restore Data", fontSize = 12.sp, color = TextInk, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            backupMessage?.let { msg ->
+                Text(msg, fontSize = 11.sp, color = primaryColor, modifier = Modifier.padding(horizontal = 4.dp))
+            }
+        }
         HorizontalDivider(color = TextInk.copy(alpha = 0.08f))
         val settingsCtx = androidx.compose.ui.platform.LocalContext.current
         val currentVersion = remember(settingsCtx) {

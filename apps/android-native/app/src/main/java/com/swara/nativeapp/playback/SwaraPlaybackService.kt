@@ -46,10 +46,16 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
+import com.google.common.collect.ImmutableList
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import com.swara.nativeapp.MainActivity
+import com.swara.nativeapp.data.SwaraDatabaseHelper
 import com.swara.nativeapp.data.YouTubeMusicClient
+import com.swara.nativeapp.model.Track
 import com.swara.nativeapp.widget.SwaraWidgetProvider
 import kotlinx.coroutines.runBlocking
 import java.io.IOException
@@ -58,15 +64,17 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
 
-class SwaraPlaybackService : MediaSessionService() {
+class SwaraPlaybackService : MediaLibraryService() {
 
     private var player: ExoPlayer? = null
-    private var mediaSession: MediaSession? = null
+    private var mediaSession: MediaLibrarySession? = null
     private val yt = YouTubeMusicClient()
+    private val db by lazy { SwaraDatabaseHelper(applicationContext) }
     private val mainHandler = Handler(Looper.getMainLooper())
     private val imgExecutor = Executors.newFixedThreadPool(2)
     private val cacheExecutor = Executors.newFixedThreadPool(2)
     private val artCache = ConcurrentHashMap<String, Bitmap>()
+    private val retriedStreamIds = ConcurrentHashMap.newKeySet<String>()
     @Volatile private var autoQueueInFlightForId: String? = null
 
     private var islandRoot: LinearLayout? = null
@@ -162,6 +170,9 @@ class SwaraPlaybackService : MediaSessionService() {
 
         @Volatile
         var maxSongCacheMb: Int = 1126
+
+        @Volatile
+        var crossfadeSeconds: Int = 0
 
         fun enforceSongCacheLimit(ctx: android.content.Context) {
             val maxBytes = maxSongCacheMb.toLong().coerceAtLeast(128L) * 1024L * 1024L
@@ -318,6 +329,54 @@ class SwaraPlaybackService : MediaSessionService() {
         }
     }
 
+    private val crossfadeTicker = object : Runnable {
+        override fun run() {
+            val exo = player
+            val fadeMs = crossfadeSeconds * 1000L
+            if (exo != null && exo.isPlaying && fadeMs > 0L) {
+                val dur = exo.duration
+                val pos = exo.currentPosition
+                if (dur > fadeMs * 2 && pos >= 0L) {
+                    val remain = dur - pos
+                    val vol = when {
+                        remain in 1L..fadeMs -> (remain.toFloat() / fadeMs.toFloat()).coerceIn(0.12f, 1f)
+                        pos < fadeMs -> (0.15f + 0.85f * (pos.toFloat() / fadeMs.toFloat())).coerceIn(0.15f, 1f)
+                        else -> 1f
+                    }
+                    if (kotlin.math.abs(exo.volume - vol) > 0.02f) exo.volume = vol
+                }
+            }
+            if (player != null) mainHandler.postDelayed(this, 160L)
+        }
+    }
+
+    private fun toPlayableMediaItem(t: Track): MediaItem = MediaItem.Builder()
+        .setMediaId(t.id)
+        .setUri(trackUri(t.id))
+        .setMediaMetadata(
+            androidx.media3.common.MediaMetadata.Builder()
+                .setTitle(t.title)
+                .setArtist(t.artist)
+                .setArtworkUri(Uri.parse(t.artworkUrl))
+                .setIsPlayable(true)
+                .setIsBrowsable(false)
+                .build(),
+        )
+        .build()
+
+    private fun browsableItem(id: String, title: String, subtitle: String): MediaItem = MediaItem.Builder()
+        .setMediaId(id)
+        .setMediaMetadata(
+            androidx.media3.common.MediaMetadata.Builder()
+                .setTitle(title)
+                .setSubtitle(subtitle)
+                .setIsPlayable(false)
+                .setIsBrowsable(true)
+                .setMediaType(androidx.media3.common.MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS)
+                .build(),
+        )
+        .build()
+
     @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
@@ -442,7 +501,31 @@ class SwaraPlaybackService : MediaSessionService() {
             }
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                exo.currentMediaItem?.mediaId?.let { streamCache.remove(it) }
+                val failedId = exo.currentMediaItem?.mediaId
+                if (failedId != null) streamCache.remove(failedId)
+                // Auto-refresh expired stream URL once at saved position before skipping
+                if (failedId != null && !failedId.startsWith("loc_") && retriedStreamIds.add(failedId)) {
+                    val savedPos = exo.currentPosition.coerceAtLeast(0L)
+                    cacheExecutor.execute {
+                        val refreshed = runCatching {
+                            runBlocking { yt.resolveAudioUrl(failedId, quality = audioQuality, preferNewPipe = true) }
+                        }.getOrNull()?.getOrNull()
+                        mainHandler.post {
+                            if (player !== exo) return@post
+                            if (!refreshed.isNullOrBlank()) {
+                                streamCache[failedId] = refreshed
+                                exo.seekTo(savedPos)
+                                exo.prepare()
+                                exo.play()
+                            } else if (exo.hasNextMediaItem()) {
+                                exo.seekToNextMediaItem()
+                                exo.prepare()
+                                exo.play()
+                            }
+                        }
+                    }
+                    return
+                }
                 if (exo.hasNextMediaItem()) {
                     exo.seekToNextMediaItem()
                     exo.prepare()
@@ -472,16 +555,58 @@ class SwaraPlaybackService : MediaSessionService() {
         )
 
         player = exo
-        // Allow smartwatch companion apps, Bluetooth AVRCP, Wear OS, and SystemUI to send Play/Pause/Prev/Next
-        mediaSession = MediaSession.Builder(this, exo)
-            .setSessionActivity(sessionActivity)
-            .setCallback(object : MediaSession.Callback {
+        mainHandler.post(crossfadeTicker)
+        // Allow smartwatch, Bluetooth AVRCP, Android Auto, Wear OS, and SystemUI
+        mediaSession = MediaLibrarySession.Builder(
+            this,
+            exo,
+            object : MediaLibrarySession.Callback {
                 override fun onConnect(
                     session: MediaSession,
-                    controller: MediaSession.ControllerInfo
+                    controller: MediaSession.ControllerInfo,
                 ): MediaSession.ConnectionResult =
                     MediaSession.ConnectionResult.AcceptedResultBuilder(session).build()
-            })
+
+                override fun onGetLibraryRoot(
+                    session: MediaLibrarySession,
+                    browser: MediaSession.ControllerInfo,
+                    params: LibraryParams?,
+                ): ListenableFuture<LibraryResult<MediaItem>> =
+                    Futures.immediateFuture(LibraryResult.ofItem(browsableItem("root", "Swara", "Music"), params))
+
+                override fun onGetChildren(
+                    session: MediaLibrarySession,
+                    browser: MediaSession.ControllerInfo,
+                    parentId: String,
+                    page: Int,
+                    pageSize: Int,
+                    params: LibraryParams?,
+                ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+                    val prefs = getSharedPreferences("swara_native_prefs", MODE_PRIVATE)
+                    val items: List<MediaItem> = when {
+                        parentId == "root" -> {
+                            val baseFolders = listOf(
+                                browsableItem("liked", "Liked Songs", "Your favorites"),
+                                browsableItem("recent", "Recently Played", "Listening history"),
+                            )
+                            val plFolders = db.loadPlaylists(prefs).map { pl ->
+                                browsableItem("pl:${pl.id}", pl.name, "${pl.tracks.size} songs")
+                            }
+                            baseFolders + plFolders
+                        }
+                        parentId == "liked" -> db.loadTrackList("liked", prefs).map(::toPlayableMediaItem)
+                        parentId == "recent" -> db.loadTrackList("recent", prefs).map(::toPlayableMediaItem)
+                        parentId.startsWith("pl:") -> {
+                            val plId = parentId.removePrefix("pl:")
+                            db.loadPlaylists(prefs).firstOrNull { it.id == plId }?.tracks.orEmpty().map(::toPlayableMediaItem)
+                        }
+                        else -> emptyList()
+                    }
+                    return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(items), params))
+                }
+            },
+        )
+            .setSessionActivity(sessionActivity)
             .build()
     }
 
@@ -1174,7 +1299,7 @@ class SwaraPlaybackService : MediaSessionService() {
         repeatIcon = null
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = mediaSession
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val exo = player
@@ -1185,6 +1310,7 @@ class SwaraPlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         activeService = null
+        mainHandler.removeCallbacks(crossfadeTicker)
         hideDynamicIsland()
         try {
             equalizer?.release()

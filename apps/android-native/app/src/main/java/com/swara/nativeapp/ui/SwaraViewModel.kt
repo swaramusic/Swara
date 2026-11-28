@@ -109,11 +109,13 @@ data class SwaraUiState(
     val songCacheEnabled: Boolean = true,
     val maxSongCacheMb: Int = 1126,
     val romanizeLyrics: Boolean = false,
+    val crossfadeSeconds: Int = 0,
     val errorMessage: String? = null
 )
 
 class SwaraViewModel(app: Application) : AndroidViewModel(app) {
     internal val yt = YouTubeMusicClient()
+    internal val db by lazy { com.swara.nativeapp.data.SwaraDatabaseHelper(app) }
     internal val prefs =
         app.getSharedPreferences("swara_native_prefs", 0).also {
             if (it.contains("discord_token")) it.edit().remove("discord_token").apply()
@@ -186,6 +188,9 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
                     SwaraPlaybackService.maxSongCacheMb = it
                 },
                 romanizeLyrics = prefs.getBoolean("romanize_lyrics", false),
+                crossfadeSeconds = prefs.getInt("crossfade_sec", 0).also {
+                    SwaraPlaybackService.crossfadeSeconds = it
+                },
                 downloadTreeUri = prefs.getString("download_tree_uri", "") ?: ""
             )
         )
@@ -858,29 +863,10 @@ class SwaraViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     internal fun saveTrackList(key: String, list: List<Track>) {
-        val arr = org.json.JSONArray()
-        list.forEach {
-            arr.put(
-                org.json.JSONObject().put(
-                    "id",
-                    it.id
-                ).put("t", it.title).put("a", it.artist).put("img", it.artworkUrl)
-            )
-        }
-        prefs.edit().putString(key, arr.toString()).apply()
+        db.saveTrackList(key, list)
     }
 
-    private fun loadTrackList(key: String): List<Track> = runCatching {
-        val arr = org.json.JSONArray(prefs.getString(key, "[]"))
-        (0 until arr.length()).mapNotNull { i ->
-            runCatching {
-                val o = arr.getJSONObject(i)
-                val id = o.optString("id", "")
-                if (id.isBlank()) null
-                else Track(id, o.optString("t", ""), o.optString("a", ""), o.optString("img", ""))
-            }.getOrNull()
-        }
-    }.getOrDefault(emptyList())
+    private fun loadTrackList(key: String): List<Track> = db.loadTrackList(key, prefs)
 
     fun setDiscordRpcEnabled(enabled: Boolean) {
         prefs.edit().putBoolean("discord_rpc_enabled", false).apply()
