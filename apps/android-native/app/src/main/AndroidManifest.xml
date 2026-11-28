@@ -44,9 +44,18 @@
             </intent-filter>
         </service>
 
+        <activity
+            android:name=".widget.SwaraWidgetConfigActivity"
+            android:exported="true"
+            android:theme="@style/Theme.SwaraNative">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
         <receiver
             android:name=".widget.SwaraWidgetProvider"
-            android:label="Swara Compact (4×1)"
+            android:label="Swara Player (4×1)"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -58,7 +67,7 @@
 
         <receiver
             android:name=".widget.SwaraLargeWidgetProvider"
-            android:label="Swara Player Card (4×2)"
+            android:label="Swara Player (4×2)"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -69,15 +78,39 @@
         </receiver>
 
         <receiver
-            android:name=".widget.SwaraMiniWidgetProvider"
-            android:label="Swara Mini (2×1)"
+            android:name=".widget.SwaraSquareWidgetProvider"
+            android:label="Swara Square (2×2)"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/swara_widget_mini_info" />
+                android:resource="@xml/swara_widget_square_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.SwaraTallWidgetProvider"
+            android:label="Swara Poster (2×4)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/swara_widget_tall_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.SwaraOneByOneWidgetProvider"
+            android:label="Swara Mini (1×1)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/swara_widget_1x1_info" />
         </receiver>
 
         <provider

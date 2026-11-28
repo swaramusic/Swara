@@ -603,6 +603,8 @@ class SwaraPlaybackService : MediaSessionService() {
             bmp,
             exo.shuffleModeEnabled,
             exo.repeatMode,
+            exo.currentPosition,
+            exo.duration,
         )
     }
 
