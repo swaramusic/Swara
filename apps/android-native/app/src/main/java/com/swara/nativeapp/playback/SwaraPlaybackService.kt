@@ -50,6 +50,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.swara.nativeapp.MainActivity
 import com.swara.nativeapp.data.YouTubeMusicClient
+import com.swara.nativeapp.widget.SwaraWidgetProvider
 import kotlinx.coroutines.runBlocking
 import java.io.IOException
 import java.net.URL
@@ -405,17 +406,22 @@ class SwaraPlaybackService : MediaSessionService() {
                     initEqualizer(exo.audioSessionId)
                 }
                 refreshDynamicIsland()
+                refreshWidget()
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 refreshDynamicIsland()
-                // Pre-warm artwork bitmap immediately so Dynamic Island cover renders instantly
+                refreshWidget()
+                // Pre-warm artwork bitmap immediately so Dynamic Island & Widget covers render instantly
                 mediaItem?.let { item ->
                     val url = item.mediaMetadata.artworkUri?.toString().orEmpty()
                         .ifBlank { if (item.mediaId.isNotBlank()) "https://i.ytimg.com/vi/${item.mediaId}/hqdefault.jpg" else "" }
                     if (url.isNotBlank() && !artCache.containsKey(url)) {
                         imgExecutor.execute {
-                            fetchSafeBitmap(url)?.let { artCache[url] = it }
+                            fetchSafeBitmap(url)?.let { bmp ->
+                                artCache[url] = bmp
+                                mainHandler.post { refreshWidget() }
+                            }
                         }
                     }
                 }
@@ -453,32 +459,66 @@ class SwaraPlaybackService : MediaSessionService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val allowedControllerPackages = setOf(
-            packageName,
-            "com.android.systemui",
-            "com.google.android.projection.gearhead",
-            "com.google.android.wearable.app",
-            "com.android.bluetooth",
-            "android"
-        )
         player = exo
+        // Allow smartwatch companion apps, Bluetooth AVRCP, Wear OS, and SystemUI to send Play/Pause/Prev/Next
         mediaSession = MediaSession.Builder(this, exo)
             .setSessionActivity(sessionActivity)
             .setCallback(object : MediaSession.Callback {
                 override fun onConnect(
                     session: MediaSession,
                     controller: MediaSession.ControllerInfo
-                ): MediaSession.ConnectionResult {
-                    if (controller.packageName !in allowedControllerPackages &&
-                        controller.uid != android.os.Process.SYSTEM_UID &&
-                        controller.uid != android.os.Process.myUid()
-                    ) {
-                        return MediaSession.ConnectionResult.reject()
-                    }
-                    return super.onConnect(session, controller)
-                }
+                ): MediaSession.ConnectionResult =
+                    MediaSession.ConnectionResult.AcceptedResultBuilder(session).build()
             })
             .build()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            SwaraWidgetProvider.ACTION_PLAY_PAUSE -> {
+                val exo = player
+                if (exo != null) {
+                    if (exo.isPlaying) exo.pause() else {
+                        if (exo.playbackState == Player.STATE_IDLE) exo.prepare()
+                        exo.play()
+                    }
+                    refreshWidget()
+                }
+            }
+            SwaraWidgetProvider.ACTION_NEXT -> {
+                player?.let { exo ->
+                    if (exo.hasNextMediaItem()) {
+                        exo.seekToNextMediaItem()
+                        if (exo.playbackState == Player.STATE_IDLE) exo.prepare()
+                        exo.play()
+                    }
+                    refreshWidget()
+                }
+            }
+            SwaraWidgetProvider.ACTION_PREV -> {
+                player?.let { exo ->
+                    exo.seekToPrevious()
+                    if (exo.playbackState == Player.STATE_IDLE) exo.prepare()
+                    exo.play()
+                    refreshWidget()
+                }
+            }
+        }
+        return super.onStartCommand(intent, flags, startId)
+    }
+
+    private fun refreshWidget() {
+        val exo = player ?: return
+        val item = exo.currentMediaItem
+        val title = item?.mediaMetadata?.title?.toString().orEmpty().ifBlank { "Swara Music" }
+        val artist = item?.mediaMetadata?.artist?.toString().orEmpty().ifBlank { "Tap to open player" }
+        val artUrl = item?.mediaMetadata?.artworkUri?.toString().orEmpty()
+            .ifBlank {
+                val id = item?.mediaId.orEmpty()
+                if (id.isNotBlank()) "https://i.ytimg.com/vi/$id/hqdefault.jpg" else ""
+            }
+        val bmp = if (artUrl.isNotBlank()) artCache[artUrl] else null
+        SwaraWidgetProvider.updateAllWidgets(this, title, artist, exo.isPlaying, bmp)
     }
 
     @OptIn(UnstableApi::class)
