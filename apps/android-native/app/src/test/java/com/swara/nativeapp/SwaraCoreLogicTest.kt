@@ -1,9 +1,11 @@
 package com.swara.nativeapp
 
+import com.swara.nativeapp.data.SwaraDatabaseHelper
 import com.swara.nativeapp.data.YouTubeMusicClient
 import com.swara.nativeapp.model.Track
 import com.swara.nativeapp.model.romanizeLyricLine
 import com.swara.nativeapp.model.stringsFor
+import com.swara.nativeapp.ui.SwaraBackupCodec
 import com.swara.nativeapp.ui.SwaraUpdater
 import com.swara.nativeapp.ui.buildShuffledQueue
 import com.swara.nativeapp.ui.sanitizeRemoteArtworkUrl
@@ -192,5 +194,31 @@ class SwaraCoreLogicTest {
         val formatted = SwaraUpdater.formatReleaseNotes(raw)
         assertTrue(!formatted.contains("**"))
         assertTrue(!formatted.contains("https://github.com"))
+    }
+
+    @Test
+    fun sqlite_codec_and_backup_codec_preserve_tracks_and_playlists() {
+        val tracks = listOf(Track("t1", "Song One", "Artist A", "https://i.ytimg.com/vi/t1/hq.jpg"))
+        val encoded = SwaraDatabaseHelper.encodeTracks(tracks).toString()
+        val decoded = SwaraDatabaseHelper.decodeTracks(encoded)
+        assertEquals(1, decoded.size)
+        assertEquals("t1", decoded[0].id)
+        assertEquals("Song One", decoded[0].title)
+
+        val backupJson = SwaraBackupCodec.buildBackupJson(
+            playlistsRaw = "[]",
+            likedRaw = encoded,
+            recentRaw = "[]",
+            followedRaw = "[\"Artist A\"]",
+            excludedRaw = "[]",
+            streakDays = 5,
+            totalPlays = 42,
+            totalSeconds = 3600,
+            artistCountsRaw = "{\"Artist A\":10}",
+            songCountsRaw = "{\"t1\":10}",
+        )
+        assertTrue(backupJson.contains("swara_backup_v1"))
+        assertTrue(backupJson.contains("Song One"))
+        assertTrue(backupJson.contains("\"total_plays\": 42"))
     }
 }

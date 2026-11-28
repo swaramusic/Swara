@@ -203,56 +203,7 @@ fun SwaraViewModel.updatePlaylist(
 }
 
 internal fun SwaraViewModel.savePlaylists(list: List<UserPlaylist>) {
-    val arr = JSONArray()
-    list.forEach { pl ->
-        val tArr = JSONArray()
-        pl.tracks.forEach { t ->
-            tArr.put(
-                JSONObject()
-                    .put("id", t.id)
-                    .put("t", t.title)
-                    .put("a", t.artist)
-                    .put("img", t.artworkUrl)
-            )
-        }
-        arr.put(
-            JSONObject()
-                .put("id", pl.id)
-                .put("name", pl.name)
-                .put("img", pl.artworkUri)
-                .put("tracks", tArr)
-        )
-    }
-    prefs.edit().putString("playlists", arr.toString()).apply()
+    db.savePlaylists(list)
 }
 
-internal fun SwaraViewModel.loadPlaylists(): List<UserPlaylist> = runCatching {
-    val arr = JSONArray(prefs.getString("playlists", "[]"))
-    (0 until arr.length()).mapNotNull { i ->
-        runCatching {
-            val o = arr.getJSONObject(i)
-            val tArr = o.optJSONArray("tracks") ?: JSONArray()
-            val tracks =
-                (0 until tArr.length()).mapNotNull { j ->
-                    runCatching {
-                        val to = tArr.getJSONObject(j)
-                        val id = to.optString("id", "")
-                        if (id.isBlank()) null
-                        else Track(
-                            id,
-                            to.optString("t", ""),
-                            to.optString("a", ""),
-                            to.optString("img", "")
-                        )
-                    }.getOrNull()
-                }
-            val id = o.optString("id", "")
-            val name = o.optString("name", "")
-            if (id.isBlank() || name.isBlank()) null
-            else {
-                val art = o.optString("img", "").ifBlank { tracks.firstOrNull()?.artworkUrl.orEmpty() }
-                UserPlaylist(id, name, tracks, art)
-            }
-        }.getOrNull()
-    }
-}.getOrDefault(emptyList())
+internal fun SwaraViewModel.loadPlaylists(): List<UserPlaylist> = db.loadPlaylists(prefs)
