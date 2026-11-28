@@ -44,6 +44,111 @@
             </intent-filter>
         </service>
 
+        <activity
+            android:name=".widget.SwaraWidgetConfigActivity"
+            android:exported="true"
+            android:theme="@style/Theme.SwaraNative">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name=".widget.SwaraWidgetProvider"
+            android:label="Swara Player (4×1)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/swara_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.SwaraLargeWidgetProvider"
+            android:label="Swara Player (4×2)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/swara_widget_large_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.SwaraSquareWidgetProvider"
+            android:label="Swara Square (2×2)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/swara_widget_square_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.SwaraTallWidgetProvider"
+            android:label="Swara Poster (2×4)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/swara_widget_tall_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.SwaraOneByOneWidgetProvider"
+            android:label="Swara Mini (1×1)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/swara_widget_1x1_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.SwaraPlaylistsWidgetProvider"
+            android:label="Playlists (2×2)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/swara_widget_playlists_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.SwaraTurntableWidgetProvider"
+            android:label="Turntable (2×2)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/swara_widget_turntable_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.SwaraIdentifyWidgetProvider"
+            android:label="Music Recognition (4×1)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/swara_widget_identify_info" />
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
